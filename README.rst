@@ -3,7 +3,7 @@ geospade
 ========
 
 
-Add a short description here!
+GEOSPatial Abstract Data Environment
 
 
 Description

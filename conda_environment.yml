@@ -1,0 +1,10 @@
+name: geospade
+channels:
+    - defaults
+dependencies:
+    - python=3.6
+    - gdal
+    - numpy
+    - pyproj
+    - cartopy
+    - shapely

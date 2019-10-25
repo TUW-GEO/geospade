@@ -156,7 +156,7 @@ class SpatialRef(object):
         pretty_wkt_string = self.spref.ExportToPrettyWkt()
         success = self.__check_conversion(pretty_wkt_string, "pretty_wkt")
         if success:
-            return pretty_wkt
+            return pretty_wkt_string
         else:
             raise Warning("Conversion to pretty WKT string is not bijective.")
             return None

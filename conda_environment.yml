@@ -1,5 +1,6 @@
 name: geospade
 channels:
+    - conda-forge
     - defaults
 dependencies:
     - python=3.6
@@ -8,3 +9,4 @@ dependencies:
     - pyproj
     - cartopy
     - shapely
+    - numba

@@ -188,6 +188,10 @@ class RasterGeometry(object):
 
 
     @property
+    def is_axis_parallel(self):
+        return self.ori == 0.
+
+    @property
     def ll_x(self):
         """ x coordinate of lower left corner """
 
@@ -441,7 +445,7 @@ class RasterGeometry(object):
         return int(r), int(c)
 
 
-    def rc2xy(self, r, c, origin="lowerleft"):
+    def rc2xy(self, r, c, origin="ll"):
         """
         Returns the coordinates of the center or a corner (dependend on ˋoriginˋ) of a pixel specified
         by a row and column number.
@@ -467,16 +471,16 @@ class RasterGeometry(object):
 
         gt = self.gt
 
-        px_shift_map = {"upperleft": (0, 0),
-                        "upperright": (1, 0),
-                        "lowerright": (1, 1),
-                        "lowerleft": (0, 1),
-                        "center": (.5, .5)}
+        px_shift_map = {"ul": (0, 0),
+                        "ur": (1, 0),
+                        "lr": (1, 1),
+                        "ll": (0, 1),
+                        "c": (.5, .5)}
 
         if origin in px_shift_map.keys():
             px_shift = px_shift_map[origin]
         else:
-            user_wrng = "Pixel origin '{}' unknown. Origin 'upperleft' will be taken instead".format(origin)
+            user_wrng = "Pixel origin '{}' unknown. Upper left origin 'ul' will be taken instead".format(origin)
             raise Warning(user_wrng)
             px_shift = (0, 0)
 
@@ -659,6 +663,19 @@ class RasterGeometry(object):
 
         return cls.from_extent(extent, sref, x_pixel_size, y_pixel_size)
 
+
+    def get_rel_extent(self, other, unit='px'):
+        other_ul = other.rc2xy(0, 0)
+        rel_extent = (self.extent[0] - other_ul[0],  self.extent[1] - other_ul[1],
+                      self.extent[2] - other_ul[0], self.extent[3] - other_ul[1])
+        if unit == 'sr':
+            return rel_extent
+        elif unit == 'px':
+            return (int(round(rel_extent[0]/self.x_pixel_size)), int(round(rel_extent[1]/self.y_pixel_size)),
+                    int(round(rel_extent[2]/self.x_pixel_size)), int(round(rel_extent[3]/self.y_pixel_size)))
+        else:
+            err_msg = "Unit {} is unknown. Please use 'px' or 'sr'."
+            raise Exception(err_msg.format(unit))
 
     def __contains__(self, point):
         """

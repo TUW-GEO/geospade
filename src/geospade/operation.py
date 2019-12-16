@@ -1,7 +1,12 @@
-import math
-from numba import jit
-import numpy as np
+import ogr
 import cv2
+import math
+import shapely
+import numpy as np
+from numba import jit
+from copy import deepcopy
+
+from geospade.errors import GeometryUnkown
 
 
 def rasterise_polygon(points, sres=1., buffer=0.):
@@ -184,3 +189,221 @@ def polar_point(orig, dist, angle):
     ny = round(y + dist * math.sin(angle),13)
 
     return nx, ny
+
+# TODO: check projection when wrapping around date line
+def bbox2polygon(bbox, osr_sref=None, segment=None):
+    """
+    create a polygon geometry from bounding-box bbox, given by
+    a set of two points, spanning a polygon area
+    bbox : list
+        list of coordinates representing the rectangle-region-of-interest
+        in the format of [(left, lower), (right, upper)]
+    osr_sref : OGRSpatialReference, optional
+        spatial reference of the coordinates in bbox
+    segment : float
+        for precision: distance of longest segment of the geometry polygon
+        in units of input osr_sref
+    Returns
+    -------
+    geom_area : OGRGeometry
+        a geometry representing the input bbox as
+        a) polygon-geometry when defined by a rectangle bbox
+        b) point-geometry when defined by bbox through tuples of coordinates
+    """
+
+    bbox2 = deepcopy(bbox)
+
+    # wrap around dateline (considering left-lower and right-upper logic).
+    if bbox2[0][0] > bbox2[1][0]:
+        bbox2[1] = (bbox2[1][0] + 360, bbox2[1][1])
+
+    corners = [(float(bbox2[0][0]), float(bbox2[0][1])),
+               (float(bbox2[0][0]), float(bbox2[1][1])),
+               (float(bbox2[1][0]), float(bbox2[1][1])),
+               (float(bbox2[1][0]), float(bbox2[0][1]))]
+
+    return create_polygon_geometry(corners, osr_sref=osr_sref, segment=segment)
+
+
+def create_polygon_geometry(points, osr_sref=None, segment=None):
+    """
+    returns polygon geometry defined by list of points
+    Parameters
+    ----------
+    points : list
+        points defining the polygon, either...
+        2D: [(x1, y1), (x2, y2), ...]
+        3D: [(x1, y1, z1), (x2, y2, z2), ...]
+    osr_sref : OGRSpatialReference, optional
+        spatial reference to what the geometry should be transformed to
+    segment : float, optional
+        for precision: distance in units of input osr_sref of longest
+        segment of the geometry polygon
+    Returns
+    -------
+    OGRGeometry
+        a geometry projected in the target spatial reference
+    """
+    # create ring from all points
+    ring = ogr.Geometry(ogr.wkbLinearRing)
+    for p in points:
+        if len(p) == 2:
+            p += (0.0,)
+        ring.AddPoint(*p)
+    ring.CloseRings()
+
+    # create the geometry
+    polygon_geometry = ogr.Geometry(ogr.wkbPolygon)
+    polygon_geometry.AddGeometry(ring)
+
+    # assign spatial reference
+    if osr_sref is not None:
+        polygon_geometry.AssignSpatialReference(osr_sref)
+
+    # modify the geometry such it has no segment longer then the given distance
+    if segment is not None:
+        polygon_geometry = segmentize_geometry(polygon_geometry, segment=segment)
+
+    return polygon_geometry
+
+
+def segmentize_geometry(geometry, segment=0.5):
+    """
+    segmentizes the lines of a geometry
+    Parameters
+    ----------
+    geometry : OGRGeometry
+        geometry object
+    segment : float, optional
+        for precision: distance in units of input osr_sref of longest
+        segment of the geometry polygon
+    Returns
+    -------
+    OGRGeometry
+        a congruent geometry realised by more vertices along its shape
+    """
+
+    geometry_out = geometry.Clone()
+
+    geometry_out.Segmentize(segment)
+
+    geometry = None
+    return geometry_out
+
+
+def any_geom2ogr_geom(geom, osr_sref=None):
+    """
+    Transforms an extent represented in different ways or a Shapely geometry object into an OGR geometry object.
+
+    Parameters
+    ----------
+    geom : ogr.Geometry or shapely.geometry or list or tuple
+        A vector geometry. If it is of type list/tuple representing the extent (i.e. [x_min, y_min, x_max, y_max]),
+        `osr_sref` has to be given to transform the extent into a georeferenced polygon.
+    osr_sref : osr.SpatialReference, optional
+        Spatial reference of the given geometry `geom`.
+
+    Returns
+    -------
+    ogr.Geometry
+        Vector geometry as an OGR Geometry object.
+    """
+
+    if isinstance(geom, (tuple, list)) and (len(geom) == 2) and isinstance(geom[0], (tuple, list)) \
+            and isinstance(geom[1], (tuple, list)):
+        geom_ogr = bbox2polygon(geom, osr_sref=osr_sref)
+    elif isinstance(geom, (tuple, list)) and (len(geom) == 4) and (all([isinstance(x, (float, int)) for x in geom])):
+        bbox_geom = [(geom[0], geom[1]), (geom[2], geom[3])]
+        geom_ogr = any_geom2ogr_geom(bbox_geom, osr_sref=osr_sref)
+    elif isinstance(geom, (tuple, list)) and (len(geom) == 2) and (all([isinstance(x, (float, int)) for x in geom])):
+        point = shapely.geometry.Point(geom[0], geom[1])
+        geom_ogr = any_geom2ogr_geom(point)
+    elif isinstance(geom, (shapely.geometry.Polygon, shapely.geometry.Point)):
+        geom_ogr = ogr.CreateGeometryFromWkt(geom.wkt)
+        if osr_sref is not None:
+            geom_ogr.AssignSpatialReference(osr_sref)
+    elif isinstance(geom, ogr.Geometry):
+        geom_ogr = geom
+    else:
+        raise GeometryUnkown(geom)
+
+    return geom_ogr
+
+
+def xy2ij(x, y, gt):
+    """
+    Transforms global/world system coordinates to pixel coordinates/indexes.
+
+    Parameters
+    ----------
+    x : float
+        World system coordinate in X direction.
+    y : float
+        World system coordinate in Y direction.
+    gt : tuple
+        Geo-transformation parameters/dictionary.
+
+    Returns
+    -------
+    i : int
+        Column number in pixels.
+    j : int
+        Row number in pixels.
+    """
+
+    i = int(round(-1.0 * (gt[2] * gt[3] - gt[0] * gt[5] + gt[5] * x - gt[2] * y) /
+                  (gt[2] * gt[4] - gt[1] * gt[5])))
+    j = int(round(-1.0 * (-1 * gt[1] * gt[3] + gt[0] * gt[4] - gt[4] * x + gt[1] * y) /
+                  (gt[2] * gt[4] - gt[1] * gt[5])))
+    return i, j
+
+
+def ij2xy(i, j, gt, origin="ul"):
+    """
+    Transforms global/world system coordinates to pixel coordinates/indexes.
+
+    Parameters
+    ----------
+    i : int
+        Column number in pixels.
+    j : int
+        Row number in pixels.
+    gt : dict
+        Geo-transformation parameters/dictionary.
+    origin: str, optional
+        Defines the world system origin of the pixel. It can be:
+            - upper left ("ul")
+            - upper right ("ur", default)
+            - lower right ("lr")
+            - lower left ("ll")
+            - center ("c")
+
+    Returns
+    -------
+    x : float
+        World system coordinate in X direction.
+    y : float
+        World system coordinate in Y direction.
+    """
+
+    px_shift_map = {"ul": (0, 0),
+                    "ur": (1, 0),
+                    "lr": (1, 1),
+                    "ll": (0, 1),
+                    "c": (.5, .5)}
+
+    if origin in px_shift_map.keys():
+        px_shift = px_shift_map[origin]
+    else:
+        user_wrng = "Pixel origin '{}' unknown. Upper left origin 'ul' will be taken instead".format(origin)
+        raise Warning(user_wrng)
+        px_shift = (0, 0)
+
+    i += px_shift[0]
+    j += px_shift[1]
+    x = gt[0] + i * gt[1] + j * gt[2]
+    y = gt[3] + i * gt[4] + j * gt[5]
+
+    return x, y
+
+def crop_pixels2raster_geometry(raster_geom, col, row, col_size=1, row_size=1):

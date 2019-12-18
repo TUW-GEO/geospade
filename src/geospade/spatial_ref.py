@@ -6,7 +6,7 @@ from cartopy import crs as ccrs
 from collections import OrderedDict
 from shapely.geometry import LineString
 
-
+# TODO: osr.SpatialReference conversion
 class SpatialRef(object):
     """
     This class represents any OGC compliant spatial reference system. Internally, the
@@ -160,6 +160,20 @@ class SpatialRef(object):
         else:
             raise Warning("Conversion to pretty WKT string is not bijective.")
             return None
+
+    def to_osr(self):
+        """
+        Converts this class into an OSGEO/GDAL spatial reference representation.
+
+        Returns
+        -------
+        osr.SpatialReference
+            spatial reference object from GDAL/OSGEO
+        """
+
+        sref = osr.SpatialReference()
+        sref.ImportFromWkt(self.wkt)
+        return sref
 
     def get_cartopy_crs(self, bounds=None):
         """

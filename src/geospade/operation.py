@@ -141,31 +141,38 @@ def get_quadrant(x, y):
 
 
 @jit(nopython=True)
-def construct_geotransform(ori, rot, px, deg=True):
+def construct_geotransform(origin, rot, px, deg=True):
     """
-    Helping function, that constructs the GDAL geotransform tuple given the
-    origin, rotation angle in respect to grid and pixel sizes
-    :param orig: 2 - list/tuple
-        Coordinates of the lower-left corner, x first
-    :param rot: float
-        Rotation angle in  degrees and radians depending on 'deg' param
-    :param px: 2 - list/tuple
-        Tuple of pixel sizes, x first
-    :param deg: boolean
-        Denotes, whether angle is being parsed in degrees or radians
-        True    => Degrees (default)
-        False   => Radians
-    :return: 6 - tuple
-        GDAL geotransform tuple
+    A helper function, that constructs the GDAL Geotransform tuple given the
+    origin, rotation angle with respect to grid and pixel sizes.
+
+    Parameters
+    ----------
+    orig: 2-tuple/list
+        Coordinates of the lower-left corner, i.e. (x, y).
+    rot: float
+        Rotation angle in  degrees and radians depending on `deg`.
+    px: 2-tuple/list
+        Tuple of pixel sizes, i.e. (x_ps, y_ps).
+    deg: boolean
+        Denotes, whether angle is being parsed in degrees or radians:
+            True    => degrees (default)
+            False   => radians
+
+    Returns
+    -------
+    6-tuple
+        GDAL geotransform tuple.
     """
+
     gt = [0, 1, 0, 0, 0, 1]
-    gt[0], gt[3] = orig
-    a = round(math.radians(rot)) if deg else rot
-    xpx, ypx = px
-    gt[1] = math.cos(a) * xpx
-    gt[2] = -math.sin(a) * xpx
-    gt[4] = math.sin(a) * ypx
-    gt[5] = math.cos(a) * ypx
+    gt[0], gt[3] = origin
+    alpha = round(math.radians(rot)) if deg else rot
+    x_ps, y_ps = px
+    gt[1] = math.cos(alpha) * x_ps
+    gt[2] = -math.sin(alpha) * x_ps
+    gt[4] = math.sin(alpha) * y_ps
+    gt[5] = math.cos(alpha) * y_ps
     return tuple(gt)
 
 
@@ -189,6 +196,46 @@ def polar_point(orig, dist, angle):
     ny = round(y + dist * math.sin(angle),13)
 
     return nx, ny
+
+@jit(nopython=True)
+def get_inner_angle(polygon, deg=True):
+    """
+
+
+    Parameters
+    ----------
+    polygon: shapely.geometry or ogr.Geometry
+        Clock-wise ordered polygon
+    deg: boolean, optional
+        Denotes, whether angle is being parsed in degrees or radians:
+            True    => degrees (default)
+            False   => radians
+
+    Returns
+    -------
+    float
+        Sum of inner angles in degree or radians.
+    """
+
+    if isinstance(polygon, ogr.Geometry):
+        polygon = shapely.wkt.loads(polygon.ExportToWKT())
+
+    vertices = list(polygon.exterior.coords)
+    vertices = vertices.append(vertices[1])
+    inner_angles = []
+    for i in range(1, len(vertices)-1):
+        prev_vertice = np.array(vertices[i-1])
+        this_vertice = np.array(vertices[i])
+        next_vertice = np.array(vertices[i+1])
+        a = prev_vertice - this_vertice
+        b = next_vertice - this_vertice
+        inner_angle = np.arccos(np.dot(a, b)/(np.linalg.norm(a) * np.linalg.norm(b)))
+        inner_angles.append(inner_angle)
+
+    inner_angle_sum = sum(inner_angles)
+    if deg:
+        inner_angle_sum *= (np.pi/180.)
+    return inner_angle_sum
 
 # TODO: check projection when wrapping around date line
 def bbox2polygon(bbox, osr_sref=None, segment=None):

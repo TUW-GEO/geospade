@@ -1,5 +1,8 @@
 import os
+import osr
+import ogr
 import math
+import copy
 import shapely
 
 import numpy as np
@@ -11,29 +14,52 @@ from matplotlib.collections import PatchCollection
 from shapely.geometry import Polygon, LineString
 from matplotlib.patches import Polygon as PolygonPatch, Path, PathPatch
 
+from geospade.operation import polar_point
+from geospade.operation import segmentize_geometry
+from geospade.operation import any_geom2ogr_geom
+from geospade.operation import construct_geotransform
+
+from geospade.spatial_ref import SpatialRef
+
+def _any_geom2ogr_geom(func):
+    """
+    A decorator which converts an input geometry (first argument) into an OGR.geometry object
+    """
+
+    def wrapper(*args, **kwargs):
+        sref = kwargs.get("sref", None)
+        if isinstance(sref, SpatialRef):
+            sref = sref.to_osr()
+        ogr_geom = any_geom2ogr_geom(args[0], osr_sref=sref)
+        if len(args) > 1:
+            return func(ogr_geom, **kwargs)
+        else:
+            args = args[1:]
+            return func(ogr_geom, *args, **kwargs)
+
+    return wrapper
 
 class SwathGeometry(object):
     """
     Represents the geometry of a satellite swath grid.
     """
 
-
     def __init__(self, xs, ys, sref, geom_id=None, description=None):
         """
-        Constructor of the RasterGeometry class.
+        Constructor of the `SwathGeometry` class.
 
         Parameters
         ----------
-        xs: list of numbers
-            East-west coordinates
-        ys: list of numbers
-            South-north coordinates
-        sref: geospade.spatial_ref.SpatialRef
-            Spatial reference of the geometry
-        geom_id: int, optional
-            ID of the geometry
-        description: string, optional
-            Verbal description of the geometry
+        xs : list of numbers
+            East-west coordinates.
+        ys : list of numbers
+            South-north coordinates.
+        sref : geospade.spatial_ref.SpatialRef
+            Spatial reference of the geometry.
+        geom_id : int or str, optional
+            ID of the geometry.
+        description : string, optional
+            Verbal description of the geometry.
         """
 
         pass
@@ -43,39 +69,37 @@ class RasterGeometry(object):
     """
     Represents the geometry of a georeferenced raster.
     It describes the extent and the grid of the raster along with its spatial reference.
-    The geometry can be used as a Shapely geometry, or exported into a Cartopy projection.
+    The (boundary) geometry can be used as an OGR geometry, or can be exported into a Cartopy projection.
     """
 
     def __init__(self, rows, cols, sref,
                  gt=(0, 1, 0, 0, 0, 1),
                  geom_id=None,
-                 description=None):
+                 description=None,
+                 segment_size=None):
         """
-        Constructor of the RasterGeometry class.
+        Constructor of the `RasterGeometry` class.
 
         Parameters
         ----------
         rows: int
-            Number of pixel rows
+            Number of pixel rows.
         cols: int
-            Number of pixel columns
+            Number of pixel columns.
         sref: geospade.spatial_ref.SpatialRef
-            Spatial reference of the geometry
+            Spatial reference of the geometry.
         gt: 6-tuple, optional
-            GDAL Geotransform 'matrix'
-        geom_id: int, optional
-            ID of the geometry
+            GDAL Geotransform tuple.
+        geom_id: int or str, optional
+            ID of the geometry.
         description : string, optional
-            Verbal description of the geometry
+            Verbal description of the geometry.
+        segment_size: float, optional
+            For precision: distance in input units of longest segment of the geometry polygon.
         """
 
-        # Since the pixel_sizes, which are generally calculated from
-        # geotransform can contain negative values, we have to make sure
-        # that rows and cols are always positive integers
-        # This causes practically any use of the abs function in this class
-        # https://gis.stackexchange.com/questions/229780/why-is-gdalwarp-flipping-pixel-size-sign
-        self.rows = rows  # TODO abs: in my opinion this is not necessary, the sign is regulated by gt
-        self.cols = cols  # TODO abs: in my opinion this is not necessary, the sign is regulated by gt
+        self.rows = rows
+        self.cols = cols
         self.sref = sref
         self.gt = gt
         self.geom_id = geom_id
@@ -84,30 +108,36 @@ class RasterGeometry(object):
         self.ori = -math.atan2(self.gt[2], self.gt[1])  # radians, usually 0
 
         # shapely representation
-        self.geometry = Polygon(self.vertices)
+        boundary = Polygon(self.vertices)
+        boundary_ogr = ogr.CreateGeometryFromWkt(boundary.wkt)
+        boundary_ogr.AssignSpatialReference(sref.to_osr())
+        self.geometry = segmentize_geometry(boundary_ogr, segment=segment_size)
 
     @classmethod
-    def from_extent(cls, extent, sref, x_pixel_size, y_pixel_size):
+    def from_extent(cls, extent, sref, x_pixel_size, y_pixel_size, **kwargs):
         """
-        Creates a RasterGeometry object from a given extent (in units of the
+        Creates a `RasterGeometry` object from a given extent (in units of the
         spatial reference) and pixel sizes in both pixel-grid directions
         (pixel sizes determine the resolution).
 
         Parameters
         ----------
-        extent: tuple or list with 4 entries
-            Coordinates defining extent from lower left to upper right corner
+        extent : tuple or list with 4 entries
+            Coordinates defining extent from lower left to upper right corner.
             (lower-left-x, lower-left-y, upper-right-x, upper-right-y)
-        sref: geospade.spatial_ref.SpatialRef
-            Spatial reference of the geometry/extent
-        x_pixel_size: float
-            Resolution in x direction
-        y_pixel_size: float
-            Resolution in y direction
+        sref : geospade.spatial_ref.SpatialRef
+            Spatial reference of the geometry/extent.
+        x_pixel_size : float
+            Resolution in x direction.
+        y_pixel_size : float
+            Resolution in y direction.
+        **kwargs
+            Keyword arguments for `RasterGeometry` constructor, i.e. `geom_id`, `description` or `segment_size`.
 
         Returns
         -------
-        RasterGeometry
+        `RasterGeometry`
+            Raster geometry object defined by the given extent and pixel sizes.
         """
 
         ll_x, ll_y, ur_x, ur_y = extent
@@ -118,16 +148,17 @@ class RasterGeometry(object):
         # deal negative pixel sizes, hence the absolute value
         rows = abs(math.ceil(height / y_pixel_size))
         cols = abs(math.ceil(width / x_pixel_size))
-        return cls(rows, cols, sref, gt=gt)
+        return cls(rows, cols, sref, gt=gt, **kwargs)
 
     @classmethod
-    def from_geometry(cls, geom, x_pixel_size, y_pixel_size, sref=None):
+    @_any_geom2ogr_geom
+    def from_geometry(cls, geom, x_pixel_size, y_pixel_size, sref=None, **kwargs):
         """
-        Creates a RasterGeometry object from an existing geometry object.
-        Since the RasterGeometry can represent rectangles only, non-rectangular
-        shapely objects get converted into its bounding box. Since shapely
-        geometries are not georeferenced, the  spatial reference has to be
-        specified, as well as the resolution in both pixel grid directions
+        Creates a `RasterGeometry` object from an existing geometry object.
+        Since `RasterGeometry` can represent rectangles only, non-rectangular
+        shapely objects get converted into its bounding box. Since, e.g. a `Shapely`
+        geometry is not georeferenced, the spatial reference has to be
+        specified. Moreover, the resolution in both pixel grid directions has to be given.
 
         Parameters
         ----------
@@ -141,16 +172,20 @@ class RasterGeometry(object):
         sref: geospade.spatial_ref.SpatialRef, optional
             Spatial reference of the geometry object.
             Has to be given if the spatial reference cannot be derived from 'geom'.
+        **kwargs
+            Keyword arguments for `RasterGeometry` constructor, i.e. `geom_id`, `description` or `segment_size`.
 
         Returns
         -------
         RasterGeometry
         """
 
-        geom, geom_type, sref = other2shapely_geom(geom, sref=sref):
-        geom_pts = list(geom.exterior.coords)
+        #geom, geom_type, sref = other2shapely_geom(geom, sref=sref)
+        geom = shapely.wkt.loads(geom.ExportToWKT())
+        geom_ch = geom.convex_hull
+        geom_ch_pts = list(geom_ch.exterior.coords)
 
-        if len(geom_pts) == 5:  # This means actually 4 points
+        if (len(geom_ch_pts) == 5) and :  # This means actually 4 points
             # Assume that such a polygon is a rotated rectangle
             # TODO: Check angles
             # separate coordinates
@@ -166,25 +201,24 @@ class RasterGeometry(object):
             ll_x = ul_x
             ll_y = lr_y
 
-        # azimuth of the bottom base of the rectangle = orientation
-        rot = math.atan2(lr_y - ll_y, lr_x - ll_x)
+            # azimuth of the bottom base of the rectangle = orientation
+            rot = math.atan2(lr_y - ll_y, lr_x - ll_x)
 
-        gt = construct_geotransform((ul_x, ul_y),
-                                    rot,
-                                    (x_pixel_size, y_pixel_size),
-                                    deg=False)
+            gt = construct_geotransform((ul_x, ul_y),
+                                        rot,
+                                        (x_pixel_size, y_pixel_size),
+                                        deg=False)
 
-        width = math.hypot(lr_x - ll_x, lr_y - ll_y)
-        height = math.hypot(ur_x - lr_x, ur_y - lr_y)
-        rows = abs(math.ceil(height / y_pixel_size))
-        cols = abs(math.ceil(width / x_pixel_size))
+            width = math.hypot(lr_x - ll_x, lr_y - ll_y)
+            height = math.hypot(ur_x - lr_x, ur_y - lr_y)
+            rows = abs(math.ceil(height / y_pixel_size))
+            cols = abs(math.ceil(width / x_pixel_size))
 
-        return RasterGeometry(rows, cols, sref, gt=gt)
-
-    else:
-    # geom is not a rectangle
-    bbox = geom.bounds
-    return cls.from_extent(bbox, sref, x_pixel_size, y_pixel_size)
+            return RasterGeometry(rows, cols, sref, gt=gt, **kwargs)
+        else:
+            # geom is not a rectangle
+            bbox = geom.bounds
+        return cls.from_extent(bbox, sref, x_pixel_size, y_pixel_size, **kwargs)
 
 
     @property
@@ -198,14 +232,12 @@ class RasterGeometry(object):
         x, _ = self.rc2xy(self.rows, 0)
         return x
 
-
     @property
     def ll_y(self):
         """ y coordinate of lower left corner """
 
         _, y = self.rc2xy(self.rows, 0)
         return y
-
 
     @property
     def ur_x(self):
@@ -214,7 +246,6 @@ class RasterGeometry(object):
         x, _ = self.rc2xy(0, self.cols)
         return x
 
-
     @property
     def ur_y(self):
         """ y coordinate of upper right corner """
@@ -222,13 +253,11 @@ class RasterGeometry(object):
         _, y = self.rc2xy(0, self.cols)
         return y
 
-
     @property
     def x_pixel_size(self):
         """ Pixel size in x direction """
 
         return self.gt[1]
-
 
     @property
     def y_pixel_size(self):
@@ -236,13 +265,11 @@ class RasterGeometry(object):
 
         return self.gt[5]
 
-
     @property
     def h_pixel_size(self):
         """ Pixel size in W-E direction """
 
         return self.x_pixel_size / math.cos(self.ori)
-
 
     @property
     def v_pixel_size(self):
@@ -255,7 +282,7 @@ class RasterGeometry(object):
         """ Width of the raster geometry """
         return self.cols * abs(self.x_pixel_size)
 
-    @propert
+    @property
     def height(self):
         """ Height of the raster geometry """
         return self.rows * abs(self.y_pixel_size)
@@ -265,11 +292,9 @@ class RasterGeometry(object):
     def extent(self):
         return self.ll_x, self.ll_y, self.ur_x, self.ur_y
 
-
     @property
     def area(self):
         return self.width * self.height
-
 
     @property
     def vertices(self):
@@ -278,13 +303,12 @@ class RasterGeometry(object):
         (lower-left, lower-right, upper-right, upper-left)
         """
 
-        return [
-            (self.ll_x, self.ll_y),
-            polar_point((self.ll_x, self.ll_y), self.width, self.ori),
-            (self.ur_x, self.ur_y),
-            polar_point((self.ll_x, self.ll_y), self.height, self.ori + math.pi / 2)
-        ]
-
+        vertices= [(self.ll_x, self.ll_y),
+                   polar_point((self.ll_x, self.ll_y), self.width, self.ori),
+                   (self.ur_x, self.ur_y),
+                   polar_point((self.ll_x, self.ll_y), self.height, self.ori + math.pi / 2),
+                   (self.ll_x, self.ll_y)]
+        return vertices
 
     @property
     def to_wkt(self):
@@ -299,10 +323,10 @@ class RasterGeometry(object):
         """
 
 
-        return self.geometry.to_wkt()
+        return self.geometry.wkt
 
 
-    def intersects(other):
+    def intersects(self, other):
         """
         Evaluates if this geometry and another geometry intersect.
 
@@ -328,7 +352,7 @@ class RasterGeometry(object):
         return intersects
 
 
-    def touches(other):
+    def touches(self, other):
         """
         Evaluates if this geometry and another geometry touch each other.
 
@@ -599,17 +623,13 @@ class RasterGeometry(object):
         ur_x = self.ur_x + w * scl_fac_w
         ur_y = self.ur_y + h * scl_fac_h
 
-
-        raster_geom = RasterGeometry.from_extent((ll_x, ll_y, ur_x, ur_y),
+        if in_place:
+            return self
+        else:
+            return RasterGeometry.from_extent((ll_x, ll_y, ur_x, ur_y),
                                                  self.sref,
                                                  self.x_pixel_size,
                                                  self.y_pixel_size)
-        if in_place:
-            self = raster_geom
-            return self
-        else:
-            return raster_geom
-
 
     @classmethod
     def get_common_geometry(cls, raster_geoms):
@@ -813,7 +833,7 @@ class RasterGrid(object):
         adjacency_list = []
         row = [self.geoms[0]]
         for i in range(1, self.geoms):
-            if not self.geoms[i].touches(self.geoms[i - 1])
+            if not self.geoms[i].touches(self.geoms[i - 1]):
                 adjacency_list.append(row)
                 row = [self.geoms[i]]
             else:
@@ -866,7 +886,7 @@ class RasterGrid(object):
                 elif j > (m - 1):
                     j = j - m
 
-                neighbours.append(self.geoms[self.adjacency_map[i, j]]
+                neighbours.append(self.geoms[self.adjacency_map[i, j]])
 
             return neighbours
 
@@ -888,7 +908,7 @@ class RasterGrid(object):
 
             geoms = geoms_new
 
-    def __get_item__(self, key):
+    def __getitem__(self, key):
         if isinstance(key, str):
             return self._get_raster_geom(key)
         elif isinstance(key, tuple):

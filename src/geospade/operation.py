@@ -198,7 +198,7 @@ def polar_point(orig, dist, angle):
     return nx, ny
 
 @jit(nopython=True)
-def get_inner_angle(polygon, deg=True):
+def get_inner_angles(polygon, deg=True):
     """
 
 
@@ -213,8 +213,8 @@ def get_inner_angle(polygon, deg=True):
 
     Returns
     -------
-    float
-        Sum of inner angles in degree or radians.
+    list of numbers
+        Inner angles in degree or radians.
     """
 
     if isinstance(polygon, ogr.Geometry):
@@ -230,12 +230,32 @@ def get_inner_angle(polygon, deg=True):
         a = prev_vertice - this_vertice
         b = next_vertice - this_vertice
         inner_angle = np.arccos(np.dot(a, b)/(np.linalg.norm(a) * np.linalg.norm(b)))
+        if deg:
+            inner_angle *= (np.pi / 180.)
         inner_angles.append(inner_angle)
 
-    inner_angle_sum = sum(inner_angles)
-    if deg:
-        inner_angle_sum *= (np.pi/180.)
-    return inner_angle_sum
+    return inner_angles
+
+
+def is_rectangular(polygon, eps=1e-9):
+    """
+    Checks if the given polygon is rectangular.
+
+    Parameters
+    ----------
+    polygon: shapely.geometry or ogr.Geometry
+        Clock-wise ordered polygon
+    eps: float, optional
+        Machine epsilon (default is 1e-9).
+
+    Returns
+    -------
+    bool
+        True if polygon is rectangular, otherwise False.
+    """
+
+    inner_angles = get_inner_angles(polygon, deg=False)
+    return all([np.abs(np.pi/2. - inner_angle) <= eps for inner_angle in inner_angles])
 
 # TODO: check projection when wrapping around date line
 def bbox2polygon(bbox, osr_sref=None, segment=None):
@@ -452,5 +472,3 @@ def ij2xy(i, j, gt, origin="ul"):
     y = gt[3] + i * gt[4] + j * gt[5]
 
     return x, y
-
-def crop_pixels2raster_geometry(raster_geom, col, row, col_size=1, row_size=1):

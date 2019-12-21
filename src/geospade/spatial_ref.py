@@ -1,5 +1,5 @@
 import re
-
+import warnings
 from gdal import osr
 from pyproj.crs import CRS
 from cartopy import crs as ccrs
@@ -93,7 +93,7 @@ class SpatialRef(object):
             if success:
                 return self._proj4_str_to_dict(proj4_string)
             else:
-                raise Warning("Conversion to Proj4 string is not bijective.")
+                warnings.warn("Conversion to Proj4 string is not bijective.")
                 return None
 
     @property
@@ -120,7 +120,7 @@ class SpatialRef(object):
         if success:
             return code
         else:
-            raise Warning("Conversion to EPSG code is not bijective.")
+            warnings.warn("Conversion to EPSG code is not bijective.")
             return None
 
             # proj4 string may provide unsufficient information about Spatial
@@ -142,7 +142,7 @@ class SpatialRef(object):
         if success:
             return wkt_string
         else:
-            raise Warning("Conversion to WKT string is not bijective.")
+            warnings.warn("Conversion to WKT string is not bijective.")
             return None
 
     @property
@@ -158,7 +158,7 @@ class SpatialRef(object):
         if success:
             return pretty_wkt_string
         else:
-            raise Warning("Conversion to pretty WKT string is not bijective.")
+            warnings.warn("Conversion to pretty WKT string is not bijective.")
             return None
 
     def to_osr(self):
@@ -211,8 +211,6 @@ class SpatialRef(object):
         supports it (deprecated in PROJ 6.0+).
         Note: Key only parameters will be assigned a value of `True`.
         """
-        # TODO: @shahn I would got for one solution, i.e. PyProj > 2.2
-        # TODO: test if this can be simplified
         # # convert EPSG codes to equivalent PROJ4 string definition
         if proj4_str.startswith('EPSG:'):
             crs = CRS(proj4_str)

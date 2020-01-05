@@ -3,242 +3,404 @@ import warnings
 from gdal import osr
 from pyproj.crs import CRS
 from cartopy import crs as ccrs
-from collections import OrderedDict
 from shapely.geometry import LineString
 
-# TODO: osr.SpatialReference conversion
-class SpatialRef(object):
+
+class SpatialRef():
     """
     This class represents any OGC compliant spatial reference system. Internally, the
-    GDAL OSR Spatial Reference class is used, which offers access to different representations, such as EPSG,
-    Proj4 or WKT. Additionally, it can also
-    create an instance of the Cartopy projection subclass (PROJ4Projection), which
-    can be used to plot geometries or data in other classes.
+    GDAL OSR Spatial Reference class is used, which offers access to and control over
+    different representations, such as EPSG, Proj4 or WKT. Additionally, it can also
+    create an instance of a Cartopy projection subclass (PROJ4Projection), which
+    can be used to plot geometries or data.
     """
 
-    def __init__(self, arg, spref_type=None):
+    def __init__(self, arg, sref_type=None):
         """
-        Constructs a SpatialRef instance based on 'arg' which can be
-        representing given spatial reference either as:
-            EPSG Code
-            Proj4 string or Proj4 dict
-            WKT
-        If the type is not provided by the type argument, the constructor tries
-        to determine the type itself.
-        If arg is an integer, it tries to create
-        an osr SpatialReference obejct from an EPSG Code.
-        If arg is a dict, it presumes, that the user tries to create
-        spatial reference from proj4 parameters. In this case the leading
-        '+' sign are to be omitted in the parsed dictionary keys.
-        If arg is a string, the constructor tries to check whether the EPSG code
-        hasn't been parsed as string or with the 'EPSG:' prefix, or if the
-        string isn't in fact a proj4 string, or if the string conrains 'GEODCS'
-        tag, which indicates a WKT String
+        Constructs a ˋSpatialRefˋ instance based on ˋargˋ.
+        If the type is not provided by the type argument ˋsref_typeˋ, the constructor tries
+        to determine the type itself:
+            - If ˋargˋ is an integer, it tries to interpret it as an EPSG Code.
+            - If ˋargˋ is a dict, it assumes that PROJ4 parameters are given as input.
+            - If ˋargˋ is a string, the constructor tries to check whether it contains an
+              'EPSG' prefix (=> EPSG), a plus '+' (=> PROJ4) or 'GEODCS' (=> WKT).
 
         Parameters
         ----------
 
         arg: int or dict or str
-            argument containing the Spatial Reference definition
-        :param type: str (optional)
-            either: 'proj4' or 'wkt' or 'epsg'
+            represents a given spatial reference system as:
+            - EPSG Code as a string (e.g., 'EPSG:4326') or integer (e.g., 4326)
+            - PROJ4 parameters as a string (e.g., ) or dictionary (e.g., {})
+            - WKT (e.g., )
+        sref_type: str, optional
+            String defining the type of ˋargˋ. It can be: 'proj4', 'wkt' or 'epsg'.
+            If it is None, the spatial reference type of ˋargˋ is guessed.
         """
-        self.__arg = arg  # internal class variable used for cross-checking the different representations
-        self.spref = osr.SpatialReference()
 
-        if spref_type is None:
-            # cases : integer -> EPSG, dict -> Proj4, string -> WKT
-            if isinstance(arg, int):
-                spref_type = 'epsg'
-            elif isinstance(arg, dict):
-                spref_type = 'proj4'
-                # convert to string because GDAL takes proj4  as string only
-                string = ''
-                for k, v in arg.items():
-                    string += '+{}={} '.format(k, v)
-                arg = string
-            elif isinstance(arg, str):
-                if 'epsg' in arg[0:4].lower():  # EPSG prefix has been parsed too
-                    spref_type = 'epsg'
-                    epsg_code = re.findall(r'\d+')  # extract the numerical value
-                    if 4 <= len(epsg_code[0]) <= 5:  # correct length of epsg code
-                        arg = epsg_code[0]
-                elif '+' == arg[0]:  # first character is '+' => proj4 as string
-                    spref_type = 'proj4'
-                elif 'GEOGCS[' in arg:  # there is a GEOGCS tag in string => WKT
-                    spref_type = 'wkt'
+        self.sref = osr.SpatialReference()
+
+        if sref_type is None:
+            if isinstance(arg, int):  # integer is interpreted as EPSG
+                sref_type = 'epsg'
+            elif isinstance(arg, dict):  # dictionary representing PROJ4 parameters
+                sref_type = 'proj4'
+            elif isinstance(arg, str):  # string can be EPSG, PROJ4 or WKT
+                if sref_type.lower().startswith('epsg'):
+                    sref_type = 'epsg'
+                elif '+' == arg[0]:  # first character is '+' => PROJ4
+                    sref_type = 'proj4'
+                elif 'GEOGCS[' in arg:  # there is a GEOGCS tag in the given string => WKT
+                    sref_type = 'wkt'
             else:
-                raise ValueError('Spatial reference type is unknown')
+                err_msg = "Spatial reference type for '{}' is unknown.".format(arg)
+                raise ValueError(err_msg)
 
-        if spref_type == 'proj4':
-            self.spref.ImportFromProj4(arg)
-        elif spref_type == 'epsg':
-            self.spref.ImportFromEPSG(arg)
-        elif spref_type == 'wkt':
-            self.spref.ImportFromWkt(arg)
+        self._proj4 = None
+        self._epsg = None
+        self._wkt = None
+        if sref_type == 'proj4':
+            self.proj4 = arg
+        elif sref_type == 'epsg':
+            self.epsg = arg
+        elif sref_type == 'wkt':
+            self.wkt = arg
+        else:
+            err_msg = "Spatial reference type '{}' is unknown. Use 'epsg', 'wkt' or 'proj4'."
+            raise Exception(err_msg.format(sref_type))
 
-        self.spref_type = spref_type
+        self._sref_type = sref_type
 
     @property
     def proj4(self):
         """
-        :return: dict
-            proj4 representation as dict without leading '+' sign in dict keys
+        str: PROJ4 string representation
         """
-        proj4_string = self.proj4_string
-        if proj4_string is None:
-            return None
-        else:
-            success = self.__check_conversion(proj4_string, "proj4")
-            if success:
-                return self._proj4_str_to_dict(proj4_string)
-            else:
-                warnings.warn("Conversion to Proj4 string is not bijective.")
-                return None
 
-    @property
-    def proj4_string(self):
+        if self._proj4 is None:
+            success = self._check_conversion("proj4")
+            if success:
+                self._proj4 = self.osr_to_proj4(self.sref)
+        return self._proj4
+
+    @proj4.setter
+    def proj4(self, proj4_params):
         """
-        :return: str
-            proj4 representation as string
+        Sets internal PROJ4 parameters from a string or a dictionary as a string.
+
+        Parameters
+        ----------
+            proj4_params: str or dict
+                PROJ4 parameters as a string (e.g., ) or dictionary (e.g., {})
         """
-        return self.spref.ExportToProj4()[:-1]
+
+        self.sref = self.proj4_to_osr(proj4_params)
+        self._sref_type = 'proj4'
+        if self._proj4 != self.proj4:
+            self._proj4 = self.proj4
+            self._epsg = self.epsg
+            self._wkt = self.wkt
 
     @property
     def epsg(self):
         """
-        :return: int or None
-            EPSG code of the Spatial reference, if known. Else None
+        int: EPSG code representation as an integer.
         """
-        try:
-            code = int(self.spref.GetAttrValue('AUTHORITY', 1))
-        except TypeError:
-            # EPSG Code unknown
-            code = None
 
-        success = self.__check_conversion(code, "epsg")
-        if success:
-            return code
-        else:
-            warnings.warn("Conversion to EPSG code is not bijective.")
-            return None
+        if self._epsg is None:
+            success = self._check_conversion("epsg")
+            if success:
+                self._epsg = self.osr_to_epsg(self.sref)
 
-            # proj4 string may provide unsufficient information about Spatial
-            # Reference. Consider following code:
-            # >>> sref = SpatialRef(31259) #EPSG for MGI 34
-            # >>> sref = SpatialRef(sref.proj4_string)
-            # >>> sref.epsg is None
-            # True
+        return self._epsg
+
+    @epsg.setter
+    def epsg(self, epsg_code):
+        """
+        Sets internal EPSG code from an integer or a string.
+
+        Parameters
+        ----------
+            epsg_code: int or str
+                EPSG Code as a string (e.g., 'EPSG:4326') or integer (e.g., 4326).
+        """
+
+        self.sref = self.epsg_to_osr(epsg_code)
+        self._sref_type = 'epsg'
+        if self._epsg != self.epsg:
+            self._epsg = self.epsg
+            self._wkt = self.wkt
+            self._proj4 = self.proj4
 
     @property
     def wkt(self):
         """
-        :return: str
-            Well Known Text representation of the Spatial reference without
-            tabs or line breaks
+        str: Well Known Text (WKT) representation of the spatial reference without tabs or line breaks
         """
-        wkt_string = self.spref.ExportToWkt()
-        success = self.__check_conversion(wkt_string, "wkt")
-        if success:
-            return wkt_string
-        else:
-            warnings.warn("Conversion to WKT string is not bijective.")
-            return None
 
-    @property
-    def pretty_wkt(self):
-        # TODO: check if it is necessary
-        """
-        :return: str
-            Well Known Text representation of the Spatial reference formatted
-            with tabs or line breaks
-        """
-        pretty_wkt_string = self.spref.ExportToPrettyWkt()
-        success = self.__check_conversion(pretty_wkt_string, "pretty_wkt")
-        if success:
-            return pretty_wkt_string
-        else:
-            warnings.warn("Conversion to pretty WKT string is not bijective.")
-            return None
+        if self._wkt is None:
+            success = self._check_conversion("wkt")
+            if success:
+                self._wkt = self.osr_to_wkt(self.sref)
 
-    def to_osr(self):
+        return self._wkt
+
+    @wkt.setter
+    def wkt(self, wkt_string):
         """
-        Converts this class into an OSGEO/GDAL spatial reference representation.
+        Sets internal WKT string from a string.
+
+        Parameters
+        ----------
+            wkt_string: str
+                Well Known Text (WKT) string.
+        """
+
+        self.sref = self.wkt_to_osr(wkt_string)
+        self._sref_type = 'wkt'
+        if self._wkt != self.wkt:
+            self._wkt = self.wkt
+            self._epsg = self.epsg
+            self._proj4 = self.proj4
+
+    def to_pretty_wkt(self):
+        """
+        str: Well Known Text (WKT) representation of the spatial reference formatted with tabs or line breaks
+        """
+
+        return self.sref.ExportToPrettyWkt()
+
+    def to_proj4_dict(self):
+        """
+        dict: Converts internal PROJ4 parameter string to dictionary,
+        where the keys do not contain a plus and the values are converted to non-string values if possible.
+        """
+
+        return self._proj4_str_to_dict(self.proj4)
+
+    def to_cartopy_crs(self, bounds=None):
+        """
+        Creates a PROJ4Projection object that can be used as an argument of the
+        cartopy 'projection' and 'transfrom' kwargs. (PROJ4Projection is a
+        subclass of a cartopy.crs.Projection class)
+
+        Parameters
+        ----------
+        bounds: 4-tuple, optional
+            Boundary of the projection (lower-left-x, upper-right-x,
+                                        lower-left-y, upper-right-y).
 
         Returns
         -------
-        osr.SpatialReference
-            spatial reference object from GDAL/OSGEO
+        PROJ4Projection
+            PROJ4Projection instance representing the spatial reference.
         """
 
-        sref = osr.SpatialReference()
-        sref.ImportFromWkt(self.wkt)
-        return sref
-
-    def get_cartopy_crs(self, bounds=None):
-        """
-        Get a PROJ4Projection object that can be used as an argument of the
-        cartopy 'projection' and 'transfrom' kwargs. (PROJ4Projection is a
-        subclass of a cartopy.crs.Projection class)
-        :param bounds: 4-tuple
-            Boundary of the projection (lower-left-x, upper-right-x,
-                                        lower-left-y, upper-right-y)
-        :return: PROJ4Projection
-            PROJ4Projection instance representing the sptatial ref.
-        """
         return PROJ4Projection(self.proj4, bounds=bounds)
 
-    def __convert_proj4_pairs_to_dict(self, proj_pairs):
-        """Convert PROJ.4 parameters to floats if possible."""
-        proj_dict = OrderedDict()
-        for x in proj_pairs:
+    @staticmethod
+    def osr_to_proj4(osr_sref):
+        return osr_sref.ExportToProj4()[:-1]
+
+    @staticmethod
+    def proj4_to_osr(proj4_params):
+        """
+        Sets internal PROJ4 parameters from a string or a dictionary as a string.
+
+        Parameters
+        ----------
+            proj4_params: str or dict
+                PROJ4 parameters as a string (e.g., ) or dictionary (e.g., {})
+        """
+
+        # convert to string because GDAL takes proj4  as string only
+        if isinstance(proj4_params, dict):
+            arg = ''
+            for k, v in proj4_params.items():
+                arg += '+{}={} '.format(k, v)
+        elif isinstance(proj4_params, str):
+            if '+' == proj4_params[0]:
+                arg = proj4_params
+            else:
+                err_msg = "'{}' does not start with/contain a plus, which is mandatory for a Proj4 string."
+                raise Exception(err_msg)
+        else:
+            err_msg = "Proj4 parameters have to be either given as a string or a dict (see docs)."
+            raise Exception(err_msg)
+
+        osr_sref = osr.SpatialReference()
+        osr_sref.ImportFromProj4(arg)
+
+        return osr_sref
+
+    @staticmethod
+    def osr_to_epsg(osr_sref):
+        osr_sref.AutoIdentifyEPSG()
+        return int(osr_sref.GetAuthorityCode(None))
+
+    @staticmethod
+    def epsg_to_osr(epsg_code):
+        """
+        Sets internal EPSG code from an integer or a string.
+
+        Parameters
+        ----------
+            epsg_code: int or str
+                EPSG Code as a string (e.g., 'EPSG:4326') or integer (e.g., 4326).
+        """
+
+        if isinstance(epsg_code, int):
+            arg = epsg_code
+        elif isinstance(epsg_code, str) and epsg_code.lower().startswith('epsg'):
+            epsg_code_fndngs = re.findall(r'\d+')  # extract the numerical value
+            if 4 <= len(epsg_code_fndngs[0]) <= 5:  # correct length of EPSG code
+                arg = epsg_code_fndngs[0]
+            else:
+                err_msg = "'{}' is not an EPSG conform string. Either use the EPSG code as an integer or as a string, e.g. 'EPSG:4326'"
+                raise Exception(err_msg.format(epsg_code))
+        else:
+            err_msg = "The EPSG code has to be either given as a string or an integer (see docs)."
+            raise Exception(err_msg)
+
+        osr_sref = osr.SpatialReference()
+        osr_sref.ImportFromEPSG(arg)
+
+        return osr_sref
+
+    @staticmethod
+    def osr_to_wkt(osr_sref):
+        return osr_sref.ExportToWkt()
+
+    @staticmethod
+    def wkt_to_osr(wkt_string):
+        """
+        Sets internal WKT string from a string.
+
+        Parameters
+        ----------
+            wkt_string: str
+                Well Known Text (WKT) string.
+        """
+
+        if isinstance(wkt_string, str):
+            if 'GEOGCS[' in wkt_string:
+                arg = wkt_string
+            else:
+                err_msg = "'{}' is not a valid WKT string."
+                raise Exception(err_msg)
+        else:
+            err_msg = "The argument has to be provided as a string."
+            raise ValueError(err_msg)
+
+        osr_sref = osr.SpatialReference()
+        osr_sref.ImportFromWkt(arg)
+
+        return osr_sref
+
+    def __convert_proj4_pairs_to_dict(self, proj4_pairs):
+        """
+        Converts PROJ4 parameters to floats if possible.
+
+        Parameters
+        ----------
+        proj4_pairs: list of tuples
+            List of (key, value) pairs coming from a PROJ4 object.
+
+        Returns
+        -------
+        dict:
+            Dictionary containing PROJ4 parameters.
+        """
+
+        proj4_dict = dict()
+        for x in proj4_pairs:
             if len(x) == 1 or x[1] is True:
-                proj_dict[x[0]] = True
+                proj4_dict[x[0]] = True
                 continue
-
             try:
-                proj_dict[x[0]] = float(x[1])
+                proj4_dict[x[0]] = float(x[1])
             except ValueError:
-                proj_dict[x[0]] = x[1]
+                proj4_dict[x[0]] = x[1]
 
-        return dict(proj_dict)
+        return proj4_dict
 
-    def _proj4_str_to_dict(self, proj4_str):
-        """Convert PROJ.4 compatible string definition to dict
+    def _proj4_str_to_dict(self, proj4_string):
+        """
+        Converts PROJ4 compatible string definition to dictionary.
+
+        Parameters
+        ----------
+            proj4_string: str
+                PROJ4 parameters as a string (e.g., ).
+
+        Returns
+        -------
+            dict:
+                Dictionary containing PROJ4 parameters.
+
+        Notes
+        -----
+        Key only parameters will be assigned a value of `True`.
         EPSG codes should be provided as "EPSG:XXXX" where "XXXX"
         is the EPSG number code. It can also be provided as
-        ``"+init=EPSG:XXXX"`` as long as the underlying PROJ library
+        "+init=EPSG:XXXX" as long as the underlying PROJ library
         supports it (deprecated in PROJ 6.0+).
-        Note: Key only parameters will be assigned a value of `True`.
         """
-        # # convert EPSG codes to equivalent PROJ4 string definition
-        if proj4_str.startswith('EPSG:'):
-            crs = CRS(proj4_str)
+
+        # convert EPSG codes to equivalent PROJ4 string definition
+        if proj4_string.startswith('EPSG:'):
+            crs = CRS(proj4_string)
             return crs.to_dict()
         else:
-            proj4_pairs = (x.split('=', 1) for x in proj4_str.replace('+', '').split(" "))
+            proj4_pairs = (x.split('=', 1) for x in proj4_string.replace('+', '').split(" "))
             return self.__convert_proj4_pairs_to_dict(proj4_pairs)
 
-    def __check_conversion(self, check_spref_value, check_spref_type)
-        if self.spref_type != check_spref_type:
-            spref_other = SpatialRef(check_spref_value, type=check_spref_type)
-            spref_value_this = get_attribute(spref_other, self.spref_type)
-            if (spref_value_this == self.arg):
-                return True
-            else:
+    def _check_conversion(self, sref_type):
+        """
+        Checks whether two spatial reference types can be neatly transformed in both directions
+        (e.g., WKT <-> EPSG).
+
+        Parameters
+        ----------
+        check_sref_type:
+
+        Returns
+        -------
+        bool
+            If False, the bijective conversion between two spatial reference types is not possible.
+        """
+
+        sref_types = ["proj4", "wkt", "epsg"]
+        srefs_to = {'proj4': lambda x: SpatialRef.osr_to_proj4(x),
+                    'wkt': lambda x: SpatialRef.osr_to_wkt(x),
+                    'epsg': lambda x: SpatialRef.osr_to_epsg(x)}
+        srefs_from = {'proj4': lambda x: SpatialRef.proj4_to_osr(x),
+                      'wkt': lambda x: SpatialRef.wkt_to_osr(x),
+                      'epsg': lambda x: SpatialRef.epsg_to_osr(x)}
+
+        if sref_type not in sref_types:
+            err_msg = "Spatial reference type '{}' is unknown. Use 'epsg', 'wkt' or 'proj4'."
+            raise ValueError(err_msg.format(sref_type))
+
+        if self._sref_type != sref_type:
+            this_sref_val = srefs_to[sref_type](self.sref)
+            other_sref = srefs_from[sref_type](srefs_to[sref_type](self.sref))  # do forth and back-conversion
+            other_sref_val = srefs_to[self._sref_type](other_sref)
+            if this_sref_val != other_sref_val:
+                warn_msg = "Transformation between '{}' and '{}' is not bijective."
+                warnings.warn(warn_msg.format(self._sref_type.upper(), sref_type.upper()))
                 return False
+            else:
+                return True
         else:
             return True
 
     def __eq__(self, other):
-        this_proj4 = self.proj4
-        other_proj4 = other.proj4
-        if this_proj4 == other_proj4:
-            return True
-        else:
-            return False
+        """ Checks if this and another SpatialRef object are equal according to their PROJ4 strings."""
+        return self.proj4 == other.proj4
 
     def __ne__(self, other):
+        """ Checks if this and another SpatialRef object are unequal according to their PROJ4 strings."""
         return not self == other
 
 

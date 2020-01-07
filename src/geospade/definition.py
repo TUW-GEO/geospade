@@ -665,8 +665,6 @@ class RasterGeometry(object):
         else:
             return res_raster_geom
 
-    def crop(self, geom, segment_size=None, inplace=True):
-
     @_any_geom2ogr_geom
     def __contains__(self, geom):
         """
@@ -878,7 +876,9 @@ class RasterGrid(metaclass=abc.ABCMeta):
 
             return neighbours
 
-    def intersection(self, geom_roi, raster_geom=None):
+    @_any_geom2ogr_geom
+    @abc.abstractmethod
+    def intersection(self, geom_roi, raster_geom=None, inplace=True):
         if geom_roi is not None:
             geoms = [geom_roi]
         else:

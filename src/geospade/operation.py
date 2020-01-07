@@ -258,7 +258,7 @@ def is_rectangular(polygon, eps=1e-9):
     return all([np.abs(np.pi/2. - inner_angle) <= eps for inner_angle in inner_angles])
 
 # TODO: check projection when wrapping around date line
-def bbox2polygon(bbox, osr_sref=None, segment=None):
+def bbox_to_polygon(bbox, osr_sref=None, segment=None):
     """
     create a polygon geometry from bounding-box bbox, given by
     a set of two points, spanning a polygon area
@@ -472,3 +472,42 @@ def ij2xy(i, j, gt, origin="ul"):
     y = gt[3] + i * gt[4] + j * gt[5]
 
     return x, y
+
+
+def rel_extent(master_extent, slave_extent, x_pixel_size=1, y_pixel_size=1, unit='px', origin='ul'):
+    """
+    Computes extent in relative pixel or world system coordinates with respect to a second `RasterGeometry` object.
+
+    Parameters
+    ----------
+    other: RasterGeometry
+        `RasterGeometry` defining the origin.
+    unit: string, optional
+        Unit of the relative coordinates.
+        Possible values are:
+            'px':  Relative coordinates are given as the number of pixels.
+            'sr':  Relative coordinates are given as spatial reference units (meters/degrees).
+    Returns
+    -------
+    4-tuple of numbers
+        Relative extent of this raster geometry with respect to the other raster geometry ((min_x, min_y, max_x, max_y)).
+    """
+
+    origin_idxs_map = {'ul': [0, 3],
+                       'ur': [2, 3],
+                       'lr': [2, 1],
+                       'll': [0, 1]}
+
+    origin_idxs = origin_idxs_map[origin]
+    origin_coords = master_extent[origin_idxs]
+    rel_extent = (origin_coords[0] - slave_extent[0],  origin_coords[1] - slave_extent[1],
+                  origin_coords[0] - slave_extent[2], origin_coords[1] - slave_extent[3])
+
+    if unit == 'sr':
+        return rel_extent
+    elif unit == 'px':
+        return (int(round(rel_extent[0]/x_pixel_size)), int(round(rel_extent[1]/y_pixel_size)),
+                int(round(rel_extent[2]/x_pixel_size)), int(round(rel_extent[3]/y_pixel_size)))
+    else:
+        err_msg = "Unit {} is unknown. Please use 'px' or 'sr'."
+        raise Exception(err_msg.format(unit))

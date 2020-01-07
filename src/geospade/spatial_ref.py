@@ -38,7 +38,7 @@ class SpatialRef():
             If it is None, the spatial reference type of ˋargˋ is guessed.
         """
 
-        self.sref = osr.SpatialReference()
+        self.osr_sref = osr.SpatialReference()
 
         if sref_type is None:
             if isinstance(arg, int):  # integer is interpreted as EPSG
@@ -71,6 +71,11 @@ class SpatialRef():
 
         self._sref_type = sref_type
 
+    @classmethod
+    def from_osr(cls, osr_sref):
+        proj4_string = osr_sref.ExportToProj4()
+        return cls(proj4_string, sref_type='proj4')
+
     @property
     def proj4(self):
         """
@@ -80,7 +85,7 @@ class SpatialRef():
         if self._proj4 is None:
             success = self._check_conversion("proj4")
             if success:
-                self._proj4 = self.osr_to_proj4(self.sref)
+                self._proj4 = self.osr_to_proj4(self.osr_sref)
         return self._proj4
 
     @proj4.setter
@@ -94,7 +99,7 @@ class SpatialRef():
                 PROJ4 parameters as a string (e.g., ) or dictionary (e.g., {})
         """
 
-        self.sref = self.proj4_to_osr(proj4_params)
+        self.osr_sref = self.proj4_to_osr(proj4_params)
         self._sref_type = 'proj4'
         if self._proj4 != self.proj4:
             self._proj4 = self.proj4
@@ -110,7 +115,7 @@ class SpatialRef():
         if self._epsg is None:
             success = self._check_conversion("epsg")
             if success:
-                self._epsg = self.osr_to_epsg(self.sref)
+                self._epsg = self.osr_to_epsg(self.osr_sref)
 
         return self._epsg
 
@@ -125,7 +130,7 @@ class SpatialRef():
                 EPSG Code as a string (e.g., 'EPSG:4326') or integer (e.g., 4326).
         """
 
-        self.sref = self.epsg_to_osr(epsg_code)
+        self.osr_sref = self.epsg_to_osr(epsg_code)
         self._sref_type = 'epsg'
         if self._epsg != self.epsg:
             self._epsg = self.epsg
@@ -141,7 +146,7 @@ class SpatialRef():
         if self._wkt is None:
             success = self._check_conversion("wkt")
             if success:
-                self._wkt = self.osr_to_wkt(self.sref)
+                self._wkt = self.osr_to_wkt(self.osr_sref)
 
         return self._wkt
 
@@ -156,7 +161,7 @@ class SpatialRef():
                 Well Known Text (WKT) string.
         """
 
-        self.sref = self.wkt_to_osr(wkt_string)
+        self.osr_sref = self.wkt_to_osr(wkt_string)
         self._sref_type = 'wkt'
         if self._wkt != self.wkt:
             self._wkt = self.wkt
@@ -168,7 +173,7 @@ class SpatialRef():
         str: Well Known Text (WKT) representation of the spatial reference formatted with tabs or line breaks
         """
 
-        return self.sref.ExportToPrettyWkt()
+        return self.osr_sref.ExportToPrettyWkt()
 
     def to_proj4_dict(self):
         """
@@ -383,8 +388,8 @@ class SpatialRef():
             raise ValueError(err_msg.format(sref_type))
 
         if self._sref_type != sref_type:
-            this_sref_val = srefs_to[sref_type](self.sref)
-            other_sref = srefs_from[sref_type](srefs_to[sref_type](self.sref))  # do forth and back-conversion
+            this_sref_val = srefs_to[sref_type](self.osr_sref)
+            other_sref = srefs_from[sref_type](srefs_to[sref_type](self.osr_sref))  # do forth and back-conversion
             other_sref_val = srefs_to[self._sref_type](other_sref)
             if this_sref_val != other_sref_val:
                 warn_msg = "Transformation between '{}' and '{}' is not bijective."

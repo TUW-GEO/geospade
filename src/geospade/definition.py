@@ -1,7 +1,8 @@
 import os
+import abc
+import sys
 import osr
 import ogr
-import math
 import copy
 import shapely
 from shapely import affinity
@@ -20,10 +21,11 @@ from geospade.operation import segmentize_geometry
 from geospade.operation import any_geom2ogr_geom
 from geospade.operation import construct_geotransform
 from geospade.operation import is_rectangular
+from geospade.operation import xy2ij
+from geospade.operation import ij2xy
+from geospade.operation import bbox_to_polygon
 
 from geospade.spatial_ref import SpatialRef
-
-# TODO: rename operations
 
 def _any_geom2ogr_geom(func):
     """
@@ -33,8 +35,13 @@ def _any_geom2ogr_geom(func):
     def wrapper(*args, **kwargs):
         sref = kwargs.get("sref", None)
         if isinstance(sref, SpatialRef):
-            sref = sref.to_osr()
-        ogr_geom = any_geom2ogr_geom(args[0], osr_sref=sref)
+            sref = sref.osr_sref
+
+        geom = args[0]
+        if isinstance(geom, RasterGeometry):
+            geom = geom.geometry
+
+        ogr_geom = any_geom2ogr_geom(geom, osr_sref=sref)
         if len(args) > 1:
             return func(ogr_geom, **kwargs)
         else:
@@ -75,12 +82,13 @@ class RasterGeometry(object):
     It describes the extent and the grid of the raster along with its spatial reference.
     The (boundary) geometry can be used as an OGR geometry, or can be exported into a Cartopy projection.
     """
-    # TODO: add segment_size test and None behaviour to doku
+    # TODO: add segment_size test
     def __init__(self, rows, cols, sref,
                  gt=(0, 1, 0, 0, 0, 1),
                  geom_id=None,
                  description=None,
-                 segment_size=None):
+                 segment_size=None,
+                 parent=None):
         """
         Constructor of the `RasterGeometry` class.
 
@@ -90,7 +98,7 @@ class RasterGeometry(object):
             Number of pixel rows.
         cols: int
             Number of pixel columns.
-        sref: geospade.spatial_ref.SpatialRef
+        sref: geospade.spatial_ref.SpatialRef or osr.SpatialReference()
             Spatial reference of the geometry.
         gt: 6-tuple, optional
             GDAL Geotransform tuple.
@@ -100,21 +108,29 @@ class RasterGeometry(object):
             Verbal description of the geometry.
         segment_size: float, optional
             For precision: distance in input units of longest segment of the geometry polygon.
+            If None, only the corner points are used for creating the boundary geometry.
         """
 
         self.rows = rows
         self.cols = cols
-        self.sref = sref
         self.gt = gt
         self.geom_id = geom_id
         self.description = description
+        self.parent = None
+        self._segment_size = segment_size
 
+        # get internal spatial reference representation from osr object
+        if isinstance(sref, osr.SpatialReference):
+            sref = SpatialRef.from_osr(sref)
+        self.sref = sref
+
+        # compute orientation of rectangle
         self.ori = -np.arctan2(self.gt[2], self.gt[1])  # radians, usually 0
 
-        # shapely representation
+        # compute boundary geometry
         boundary = Polygon(self.vertices)
         boundary_ogr = ogr.CreateGeometryFromWkt(boundary.wkt)
-        boundary_ogr.AssignSpatialReference(sref.to_osr())
+        boundary_ogr.AssignSpatialReference(self.sref.osr_sref)
         self.geometry = segmentize_geometry(boundary_ogr, segment=segment_size)
 
     @classmethod
@@ -147,15 +163,14 @@ class RasterGeometry(object):
         ll_x, ll_y, ur_x, ur_y = extent
         width, height = ur_x - ll_x, ur_y - ll_y
         # calculate upper-left corner for geotransform
-        ul_x, ul_y = polar_point((ll_x, ll_y), height, math.pi / 2.)
+        ul_x, ul_y = polar_point((ll_x, ll_y), height, np.pi / 2.)
         gt = (ul_x, x_pixel_size, 0, ul_y, 0, y_pixel_size)
         # deal negative pixel sizes, hence the absolute value
-        rows = abs(math.ceil(height / y_pixel_size))
-        cols = abs(math.ceil(width / x_pixel_size))
+        rows = abs(np.ceil(height / y_pixel_size))
+        cols = abs(np.ceil(width / x_pixel_size))
         return cls(rows, cols, sref, gt=gt, **kwargs)
 
     # TODO: add function for deriving rectangular properties from a list of points
-    # TODO: exchange math with numpy
     @classmethod
     @_any_geom2ogr_geom
     def from_geometry(cls, geom, x_pixel_size, y_pixel_size, sref=None, **kwargs):
@@ -206,16 +221,16 @@ class RasterGeometry(object):
             ll_y = lr_y
 
             # azimuth of the bottom base of the rectangle = orientation
-            rot = math.atan2(lr_y - ll_y, lr_x - ll_x)
+            rot = np.arctan2(lr_y - ll_y, lr_x - ll_x)
 
             # create GDAL geotransform
             gt = construct_geotransform((ul_x, ul_y), rot, (x_pixel_size, y_pixel_size), deg=False)
 
             # define raster properties
-            width = math.hypot(lr_x - ll_x, lr_y - ll_y)
-            height = math.hypot(ur_x - lr_x, ur_y - lr_y)
-            rows = abs(math.ceil(height / y_pixel_size))
-            cols = abs(math.ceil(width / x_pixel_size))
+            width = np.hypot(lr_x - ll_x, lr_y - ll_y)
+            height = np.hypot(ur_x - lr_x, ur_y - lr_y)
+            rows = abs(np.ceil(height / y_pixel_size))
+            cols = abs(np.ceil(width / x_pixel_size))
 
             return RasterGeometry(rows, cols, sref, gt=gt, **kwargs)
         else:
@@ -320,13 +335,13 @@ class RasterGeometry(object):
     def h_pixel_size(self):
         """ Pixel size in W-E direction """
 
-        return self.x_pixel_size / math.cos(self.ori)
+        return self.x_pixel_size / np.cos(self.ori)
 
     @property
     def v_pixel_size(self):
         """ Pixel size in N-S direction """
 
-        return self.y_pixel_size / math.cos(self.ori)
+        return self.y_pixel_size / np.cos(self.ori)
 
     @property
     def width(self):
@@ -356,7 +371,7 @@ class RasterGeometry(object):
         vertices= [(self.ll_x, self.ll_y),
                    polar_point((self.ll_x, self.ll_y), self.width, self.ori),
                    (self.ur_x, self.ur_y),
-                   polar_point((self.ll_x, self.ll_y), self.height, self.ori + math.pi / 2),
+                   polar_point((self.ll_x, self.ll_y), self.height, self.ori + np.pi / 2),
                    (self.ll_x, self.ll_y)]
         return vertices
 
@@ -373,7 +388,7 @@ class RasterGeometry(object):
 
         return self.geometry.ExportToWKT()
 
-
+    @_any_geom2ogr_geom
     def intersects(self, other):
         """
         Evaluates if this geometry and another geometry intersect.
@@ -391,14 +406,9 @@ class RasterGeometry(object):
                     True if both geometries intersect, false if not.
         """
 
-        if issubclass(other, RasterGeometry):
-            geometry = other.geometry
-        else:
-            geometry = any_geom2ogr_geom(other)
+        return self.geometry.intersects(other)
 
-        return self.geometry.intersects(geometry)
-
-
+    @_any_geom2ogr_geom
     def touches(self, other):
         """
         Evaluates if this geometry and another geometry touch each other.
@@ -416,16 +426,12 @@ class RasterGeometry(object):
                     True if both geometries intersect, false if not.
         """
 
-        if issubclass(type(other), geospade.geometry.RasterGeometry):
-            touch = self.geometry.touch(other.geometry)
-        else:
-            other = other2shapely_geom(other)
         touch = self.geometry.touch(other)
 
         return touch
 
-
-    def intersection(self, other, snap_to_grid=True):
+    @_any_geom2ogr_geom
+    def intersection(self, other, snap_to_grid=True, segment_size=None, inplace=True):
         """
         Computes an intersection figure of two geometries and returns its
         (grid axes-parallel rectangle) bounding box.
@@ -447,27 +453,35 @@ class RasterGeometry(object):
         if not self.intersects(other):
             return None
 
-        if issubclass(type(other), shapely.geometry.base.BaseGeometry):
-            # other is shapely Polygon, LineString, Circle...
-            isect = self.geometry.intersection(other)
-        else:
-            # other is RasterGeometry object
-            isect = self.geometry.intersection(other.geometry)
-
-        bbox = isect.bounds
+        intersection = self.geometry.intersection(other)
+        bbox = intersection.bounds
         if snap_to_grid:
             ll_px = self.xy2rc(bbox[0], bbox[1])
             ur_px = self.xy2rc(bbox[2], bbox[3])
             bbox = self.rc2xy(*ll_px) + self.rc2xy(*ur_px)
 
-        return RasterGeometry.from_extent(bbox,
-                                          sref=self.sref,
-                                          x_pixel_size=self.x_pixel_size,
-                                          y_pixel_size=self.y_pixel_size)
+        if segment_size is None:
+            segment_size = self._segment_size
 
-    # TODO: set this bounds
+        intsct_raster_geom = RasterGeometry.from_extent(bbox, sref=self.sref, x_pixel_size=self.x_pixel_size,
+                                                        y_pixel_size=self.y_pixel_size, geom_id=self.geom_id,
+                                                        description=self.description, segment_size=segment_size,
+                                                        parent=self)
+
+        if inplace:
+            self._segment_size = segment_size
+            self.geometry = intsct_raster_geom.geometry
+            self.rows = intsct_raster_geom.rows
+            self.cols = intsct_raster_geom.cols
+            self.gt = intsct_raster_geom.gt
+            return self
+        else:
+            return intsct_raster_geom
+
+
     def to_cartopy_crs(self, bounds=None):
-        bounds = (self.ll_x, self.ur_x, self.ll_y, self.ur_y)
+        if bounds is None:
+            bounds = (self.ll_x, self.ur_x, self.ll_y, self.ur_y)
         return self.sref.get_cartopy_crs(bounds=bounds)
 
 
@@ -487,25 +501,14 @@ class RasterGeometry(object):
         r: int
             Pixel row number.
         c: int
-                        Pixel column number.
+            Pixel column number.
 
         Notes
         -----
         Rounds to the closest, lower integer.
         """
 
-        gt = self.gt
-
-        c = (-1.0 * (gt[2] * gt[3] - gt[0] * gt[5] + gt[5] * x - gt[2] * y) /
-             (gt[2] * gt[4] - gt[1] * gt[5]))
-        r = (-1.0 * (-1 * gt[1] * gt[3] + gt[0] * gt[4] - gt[4] * x + gt[1] * y) /
-             (gt[2] * gt[4] - gt[1] * gt[5]))
-
-        # round to lower-closest integer
-        c = math.floor(c)
-        r = math.floor(r)
-
-        return int(r), int(c)
+        return xy2ij(x, y, self.gt)
 
 
     def rc2xy(self, r, c, origin="ll"):
@@ -520,7 +523,8 @@ class RasterGeometry(object):
         c: int
             Pixel column number.
         origin: str
-            Determines the world system origin of the pixel. It can be "upperleft", "upperright", "lowerright", "lowerleft" or "center".
+            Determines the world system origin of the pixel. It can be:
+                - "ul" (upper-left)"upperright", "lowerright", "lowerleft" or "center".
 
         Returns
         -------
@@ -530,85 +534,35 @@ class RasterGeometry(object):
             y world system coordinate.
         """
 
-        # geotransform 0 and 3 are coordinates of the upper left corner
+        return ij2xy(c, r, self.gt, origin=origin)
 
-        gt = self.gt
-
-        px_shift_map = {"ul": (0, 0),
-                        "ur": (1, 0),
-                        "lr": (1, 1),
-                        "ll": (0, 1),
-                        "c": (.5, .5)}
-
-        if origin in px_shift_map.keys():
-            px_shift = px_shift_map[origin]
+    def plot(self, ax=None, color='tab:blue', alpha=1, proj=None):
+        if 'matplotlib' in sys.modules:
+            import matplotlib.pyplot as plt
         else:
-            user_wrng = "Pixel origin '{}' unknown. Upper left origin 'ul' will be taken instead".format(origin)
-            raise Warning(user_wrng)
-            px_shift = (0, 0)
+            err_msg = "Module 'matplotlib' is mandatory for plotting a RasterGeometry object."
+            raise ImportError(err_msg)
 
-        c += px_shift[0]
-        r += px_shift[1]
-        x = gt[0] + c * gt[1] + r * gt[2]
-        y = gt[3] + c * gt[4] + r * gt[5]
+        trafo = self.to_cartopy_crs()
+        if ax is None:
+            if proj is None:
+                proj = ccrs.Mollweide()
+            ax = plt.axes(projection=proj)
+            #ax.set_global()
+            ax.gridlines()
+            ax.coastlines()
 
-        return x, y
+        boundary = shapely.wkt.loads(self.geometry.ExportToWKT())
+        patch = PolygonPatch(list(boundary.exterior.coords), color=color, alpha=alpha,
+                             transform=trafo, zorder=0)
+        ax.add_patch(patch)
 
-    # TODO: plot raster geometry boundary
-    # TODO: use matplotlib as an option
-    # probably not needed. Maybe for debugging purposes
-    #
-    # def plot(self, ax=None, color='tab:blue', alpha=1, grid=False, proj=None):
-    #     trafo = self.to_cartopy_crs()
-    #     if ax is None:
-    #         if proj is None:
-    #             proj = ccrs.Mollweide()
-    #         ax = plt.axes(projection=proj)
-    #         ax.set_global()
-    #         ax.gridlines()
-    #         ax.coastlines()
-    #
-    #     patch = PolygonPatch(self.vertices, color=color, alpha=alpha,
-    #                          transform=trafo, zorder=0)
-    #     ax.add_patch(patch)
-    #
-    #     if grid:
-    #         pass
-    #         # TODO Still needs some work
-    #         # patches = []
-    #         # ll, ur, ul = [self.vertices[0]] + self.vertices[-2:]
-    #         #
-    #         # # row dividers:
-    #         # for r in range(self.rows + 1):
-    #         #     start = polar_point(ul, r * self.x_pixel_size, self.ori)
-    #         #     end = polar_point(ll, r * self.x_pixel_size, self.ori)
-    #         #     path = Path((start, end))
-    #         #     patch = PathPatch(path,
-    #         #                       color='black',
-    #         #                       )
-    #         #     patches.append(patch)
-    #         # # col dividers
-    #         # for c in range(self.cols + 1):
-    #         #     start = polar_point(ul, c * self.y_pixel_size, self.ori - math.pi / 2)
-    #         #     end = polar_point(ur, c * self.x_pixel_size, self.ori - math.pi / 2)
-    #         #     path = Path((start, end))
-    #         #     patch = PathPatch(path,
-    #         #                       color='black',
-    #         #                       zorder=1000)
-    #         #     patches.append(patch)
-    #         #
-    #         # patches = PatchCollection(patches,
-    #         #                           transform=trafo,
-    #         #                           match_original=True)
-    #         # ax.add_collection(patches)
-    #
-    #     return ax
+        return ax
 
-    def scale(self, scale_factor):
-        return self.resize(scale_factor, unit='')
+    def scale(self, scale_factor, segment_size=None, inplace=True):
+        return self.resize(scale_factor, unit='', segment_size=segment_size, inplace=inplace)
 
-    # TODO: list of values for each border or one value
-    def resize(self, buffer_size, unit='px', in_place=True):
+    def resize(self, buffer_size, unit='px', segment_size=None, inplace=True):
         """
         Resizes the raster geometry. The value can be specified in
         percent, pixels, or spatial reference units. A positive value extends, a
@@ -653,7 +607,7 @@ class RasterGeometry(object):
         scale_factors = []
         for i in range(len(buffer_size)):
             buffer_size_i = buffer_size[i]
-            if (i == 1) or (i == 3):  # left edge
+            if (i == 0) or (i == 2):  # left edge
                 if unit == '':
                     scale_factor = buffer_size_i
                 elif unit == 'px':
@@ -670,6 +624,7 @@ class RasterGeometry(object):
 
             scale_factors.append(scale_factor)
 
+        # get extent
         vertices = list(geometry.exterior.coords)
         xs = [vertice[0] for vertice in vertices]
         ys = [vertice[1] for vertice in vertices]
@@ -677,67 +632,42 @@ class RasterGeometry(object):
         min_y = min(ys)
         max_x = max(xs)
         max_y = max(ys)
-        res_min_x = min_x - self.width * scale_factors[0]
-        res_min_y = min_y - self.height * scale_factors[3]
-        res_min_x = min_x - self.width * scale_factors[0]
-        res_min_y = min_y - self.height * scale_factors[3]
-        # dx_0 = self.width * scale_factors[0]
-        # dy_0 = self.height * scale_factors[1]
-        # alpha_0 = np.arctan(dy_0/dx_0)
-        # d_0 = np.sqrt(dx_0**2 + dy_0**2)
-        # ul_x, ul_y =
-        # polar_point(self.rc2xy(0, 0), d_0, alpha_0)
-        # ul_x -= self.width * scale_factors[0] * np.cos(self.ori)
-        # ul_y += self.height * scale_factors[1] * np.cos(self.ori)
-        # ur_x = self.ur_x + self.width * scale_factors[2] * np.tan(self.ori)
-        # ur_y = self.ur_y + self.width * scale_factors[1] * np.cos(self.ori)
-        # lr_x, lr_y = self.rc2xy(self.rows, self.cols)
-        # lr_x -= self.width * scale_factors[2] * np.tan(self.ori)
-        # lr_y += self.height * scale_factors[3] * np.tan(self.ori)
-        # ll_x = self.ll_x + self.width * scale_factors[0] * np.tan(self.ori)
-        # ll_y = self.ll_y + self.width * scale_factors[3] * np.cos(self.ori)
 
-        if in_place:
+        # resize extent
+        res_min_x = min_x - self.width * scale_factors[0]
+        res_min_y = min_y - self.height * scale_factors[3]
+        res_max_x = max_x + self.width * scale_factors[1]
+        res_max_y = max_y + self.height * scale_factors[2]
+
+
+        # create new boundary geometry and rotate it back
+        geometry = Polygon(((res_min_x, res_min_y),
+                            (res_min_x, res_max_y),
+                            (res_max_x, res_max_y),
+                            (res_max_x, res_min_y),
+                            (res_min_x, res_min_y)))
+        geometry = affinity.rotate(geometry.convex_hull, self.ori, 'center')
+
+        if segment_size is None:
+            segment_size = self._segment_size
+
+        res_raster_geom = RasterGeometry.from_geometry(geometry, self.x_pixel_size, self.y_pixel_size, self.sref,
+                                                       segment_size=segment_size, description=self.description,
+                                                       geom_id=self.geom_id, parent=self)
+
+        if inplace:
+            self._segment_size = segment_size
+            self.geometry = geometry
+            self.rows = res_raster_geom.rows
+            self.cols = res_raster_geom.cols
+            self.gt = res_raster_geom.gt
             return self
         else:
-            return RasterGeometry.from_extent((ll_x, ll_y, ur_x, ur_y),
-                                                 self.sref,
-                                                 self.x_pixel_size,
-                                                 self.y_pixel_size)
+            return res_raster_geom
 
-    # TODO: same sref, same pixel, move it to toolbox
-    def get_rel_extent(self, other, unit='px'):
-        """
-        Computes extent in relative pixel or world system coordinates with respect to a second `RasterGeometry` object.
+    def crop(self, geom, segment_size=None, inplace=True):
 
-        Parameters
-        ----------
-        other: RasterGeometry
-            `RasterGeometry` defining the origin.
-        unit: string, optional
-            Unit of the relative coordinates.
-            Possible values are:
-                'px':  Relative coordinates are given as the number of pixels.
-                'sr':  Relative coordinates are given as spatial reference units (meters/degrees).
-        Returns
-        -------
-        4-tuple of numbers
-            Relative extent of this raster geometry with respect to the other raster geometry ((min_x, min_y, max_x, max_y)).
-        """
-
-        other_ul = other.rc2xy(0, 0)
-        rel_extent = (self.extent[0] - other_ul[0],  self.extent[1] - other_ul[1],
-                      self.extent[2] - other_ul[0], self.extent[3] - other_ul[1])
-        if unit == 'sr':
-            return rel_extent
-        elif unit == 'px':
-            return (int(round(rel_extent[0]/self.x_pixel_size)), int(round(rel_extent[1]/self.y_pixel_size)),
-                    int(round(rel_extent[2]/self.x_pixel_size)), int(round(rel_extent[3]/self.y_pixel_size)))
-        else:
-            err_msg = "Unit {} is unknown. Please use 'px' or 'sr'."
-            raise Exception(err_msg.format(unit))
-
-    #TODO: call OGR within
+    @_any_geom2ogr_geom
     def __contains__(self, geom):
         """
         Checks whether a given point is contained in the raster geometry.
@@ -752,15 +682,8 @@ class RasterGeometry(object):
         bool
             True if the given point is within the raster geometry, otherwise false.
         """
-        if isinstance(point, tuple):
-            point = shapely.geometry.Point(*point)
-        elif isinstance(point, ogr.Geometry.Point):
-            point = shapely.geometry.from_wkt(point.ExportToWKT)
 
-        if self.geometry.contains(point):
-            return True
-        else:
-            return False
+        return self.geometry.Within(geom)
 
 
     def __eq__(self, other):
@@ -821,7 +744,6 @@ class RasterGeometry(object):
 
         return self.intersection(other)
 
-
     def __repr__(self):
         """
         String representation of a raster geometry as WKT string.
@@ -835,8 +757,34 @@ class RasterGeometry(object):
 
         return self.geometry.wkt
 
+    def __getitem__(self, item):
 
-class RasterGrid():
+        if not isinstance(item, tuple) or (isinstance(item, tuple) and len(item) != 2):
+            raise ValueError('Index must be a tuple containing the x and y coordinates.')
+        else:
+            if isinstance(item[0], slice):
+                min_x = item[0].start
+                max_x = item[0].stop
+                segment_size = item[0].step
+            else:
+                min_x = item[0]
+                max_x = item[0]
+                segment_size = None
+
+            if isinstance(item[1], slice):
+                min_y = item[1].start
+                max_y = item[1].stop
+                segment_size = item[1].step
+            else:
+                min_y = item[1]
+                max_y = item[1]
+
+            extent = [min_x, min_y, max_x, max_y]
+            boundary = bbox_to_polygon(extent, osr_sref=self.sref.osr_sref, segment=segment_size)
+
+            return self.intersection(boundary, segment_size=segment_size, inplace=False)
+
+class RasterGrid(metaclass=abc.ABCMeta):
     def __init__(self, raster_geoms, adjacency_map=None, map_type=None):
         self.geoms = raster_geoms
         self.geom_ids = [raster_geom.geom_id for raster_geom in raster_geoms]

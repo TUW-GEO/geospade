@@ -878,23 +878,39 @@ class RasterGrid(metaclass=abc.ABCMeta):
 
     @_any_geom2ogr_geom
     @abc.abstractmethod
-    def intersection(self, geom_roi, raster_geom=None, inplace=True):
-        if geom_roi is not None:
-            geoms = [geom_roi]
+    def intersection(self, other, inplace=True, **kwargs):
+        if self.map_type == "array":
+            geoms_intersected =
         else:
-            geoms = copy.deepcopy(self.geoms)
+            geoms_intersected = self._simple_intersection(other, **kwargs)
 
+    def _simple_intersection(self, other, **kwargs):
         geoms_intersected = []
-        while len(geoms) > 0:
-            geoms_new = []
-            for geom in geoms:
-                if not (geom.intersects(geom_roi) or geom.within(geom_roi)):
-                    continue
-                else:
-                    geoms_intersected.append(geom)
-                    geoms_add.extend(self.neighbours(geom))
+        for geom in self.geoms:
+            intersection = geom.intersection(other, inplace=False, **kwargs)
+            if intersection is not None:
+                geoms_intersected.append(intersection)
+                geoms_add = self.neighbours(geom)
+                while len(geoms_add) > 0:
+                    geoms_add_new = []
+                    for geom_add in geoms_add:
+                        intersection = geom_add.intersection(other, inplace=False, **kwargs)
+                        if intersection is None:
+                            continue
+                        else:
+                            geoms_intersected.append(intersection)
+                            geoms_add_new.extend(self.neighbours(geom_add))
+                    geoms_add = geoms_add_new
+                break
+        return geoms_intersected
 
-            geoms = geoms_new
+    def _array_intersection(self, other, **kwargs):
+        raster_geom_l = np.nanargmin(self.adjacency_map, axis=1)
+        gt = ()
+        array_geom = RasterGeometry(self.adjacency_map.shape[0], self.adjacency_map.shape[1],)
+
+    def __check_geom(self):
+        pass
 
     def __getitem__(self, key):
         if isinstance(key, str):

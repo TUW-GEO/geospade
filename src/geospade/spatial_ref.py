@@ -6,7 +6,7 @@ from cartopy import crs as ccrs
 from shapely.geometry import LineString
 
 
-class SpatialRef():
+class SpatialRef:
     """
     This class represents any OGC compliant spatial reference system. Internally, the
     GDAL OSR Spatial Reference class is used, which offers access to and control over
@@ -24,7 +24,7 @@ class SpatialRef():
 
         Parameters
         ----------
-        arg: int or dict or str
+        arg : int or dict or str
             Represents a given spatial reference system. Regarding spatial reference type determination,
             different cases are distinguished:
             - If ˋargˋ is an integer, it tries to interpret it as an EPSG Code (e.g. 4326).
@@ -36,7 +36,7 @@ class SpatialRef():
               'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],
               AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",
               0.01745329251994328,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]').
-        sref_type: str, optional
+        sref_type : str, optional
             String defining the type of ˋargˋ. It can be: 'proj4', 'wkt' or 'epsg'.
             If it is None, the spatial reference type of ˋargˋ is guessed.
         """
@@ -86,7 +86,7 @@ class SpatialRef():
 
         Parameters
         ----------
-        osr_sref: osr.SpatialReference
+        osr_sref : osr.SpatialReference
             OSR spatial reference.
 
         Returns
@@ -101,7 +101,7 @@ class SpatialRef():
     @property
     def proj4(self):
         """
-        str: PROJ4 string representation
+        str : PROJ4 string representation
         """
 
         if self._proj4 is None:
@@ -117,7 +117,7 @@ class SpatialRef():
 
         Parameters
         ----------
-        proj4_params: str or dict
+        proj4_params : str or dict
             PROJ4 parameters as a string (e.g., '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs') or a dictionary
             (e.g., {'proj': 'longlat', 'ellps': 'WGS84', 'datum': 'WGS84', 'no_defs' : True})
         """
@@ -132,7 +132,7 @@ class SpatialRef():
     @property
     def epsg(self):
         """
-        int: EPSG code representation as an integer.
+        int : EPSG code representation as an integer.
         """
 
         if self._epsg is None:
@@ -149,7 +149,7 @@ class SpatialRef():
 
         Parameters
         ----------
-        epsg_code: int or str
+        epsg_code : int or str
             EPSG Code as a string (e.g., 'EPSG: 4326') or integer (e.g., 4326).
         """
 
@@ -163,7 +163,7 @@ class SpatialRef():
     @property
     def wkt(self):
         """
-        str: Well Known Text (WKT) representation of the spatial reference without tabs or line breaks.
+        str : Well Known Text (WKT) representation of the spatial reference without tabs or line breaks.
         """
 
         if self._wkt is None:
@@ -180,7 +180,7 @@ class SpatialRef():
 
         Parameters
         ----------
-        wkt_string: str
+        wkt_string : str
             WKT string, e.g., 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,
             AUTHORITY["EPSG","7030"]], AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],
             UNIT["degree",0.01745329251994328,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]'.
@@ -195,14 +195,14 @@ class SpatialRef():
 
     def to_pretty_wkt(self):
         """
-        str: Well Known Text (WKT) representation of the spatial reference formatted with tabs and line breaks.
+        str : Well Known Text (WKT) representation of the spatial reference formatted with tabs and line breaks.
         """
 
         return self.osr_sref.ExportToPrettyWkt()
 
     def to_proj4_dict(self):
         """
-        dict: Converts internal PROJ4 parameter string to a dictionary, where the keys do not contain a plus and
+        dict : Converts internal PROJ4 parameter string to a dictionary, where the keys do not contain a plus and
         the values are converted to non-string values if possible.
         """
 
@@ -216,7 +216,7 @@ class SpatialRef():
 
         Parameters
         ----------
-        bounds: 4-tuple, optional
+        bounds : 4-tuple, optional
             Boundary of the projection (lower left x, upper right x,
                                         lower left y, upper right y).
 
@@ -235,7 +235,7 @@ class SpatialRef():
 
         Parameters
         ----------
-        osr_sref: osr.SpatialReference
+        osr_sref : osr.SpatialReference
             OSR spatial reference.
 
         Returns
@@ -253,7 +253,7 @@ class SpatialRef():
 
         Parameters
         ----------
-        proj4_params: str or dict
+        proj4_params : str or dict
             PROJ4 parameters as a string (e.g., '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs') or a dictionary
             (e.g., {'proj': 'longlat', 'ellps': 'WGS84', 'datum': 'WGS84', 'no_defs' : True})
 
@@ -290,7 +290,7 @@ class SpatialRef():
 
         Parameters
         ----------
-        osr_sref: osr.SpatialReference
+        osr_sref : osr.SpatialReference
             OSR spatial reference.
 
         Returns
@@ -311,7 +311,7 @@ class SpatialRef():
 
         Parameters
         ----------
-        epsg_code: int or str
+        epsg_code : int or str
             EPSG Code as a string (e.g., 'EPSG:4326') or integer (e.g., 4326).
 
         Returns
@@ -345,7 +345,7 @@ class SpatialRef():
 
         Parameters
         ----------
-        osr_sref: osr.SpatialReference
+        osr_sref : osr.SpatialReference
             OSR spatial reference.
 
         Returns
@@ -363,7 +363,7 @@ class SpatialRef():
 
         Parameters
         ----------
-        wkt_string: str
+        wkt_string : str
             WKT string, e.g., 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,
             AUTHORITY["EPSG","7030"]], AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],
             UNIT["degree",0.01745329251994328,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]'.
@@ -395,12 +395,12 @@ class SpatialRef():
 
         Parameters
         ----------
-        proj4_pairs: list of tuples
+        proj4_pairs : list of tuples
             List of (key, value) pairs coming from a PROJ4 object, e.g., [('proj', 'longlat'), ('ellps', 'WGS84')].
 
         Returns
         -------
-        dict:
+        dict
             Dictionary containing PROJ4 parameters.
         """
 
@@ -422,12 +422,12 @@ class SpatialRef():
 
         Parameters
         ----------
-        proj4_string: str
+        proj4_string : str
             PROJ4 parameters as a string (e.g., '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs').
 
         Returns
         -------
-        dict:
+        dict
             Dictionary containing PROJ4 parameters.
 
         Notes
@@ -454,7 +454,7 @@ class SpatialRef():
 
         Parameters
         ----------
-        sref_type: str
+        sref_type : str
             String defining the spatial reference type to check. It can be: 'proj4', 'wkt' or 'epsg'.
 
         Returns
@@ -545,7 +545,7 @@ class PROJ4Projection(ccrs.Projection):
         self.bounds = bounds
 
     def __repr__(self):
-        """ String representation of `PROJ4Projection`. """
+        """ str :  String representation of `PROJ4Projection`. """
         return 'PROJ4Projection({})'.format(self.proj4_init)
 
     @property
@@ -557,19 +557,19 @@ class PROJ4Projection(ccrs.Projection):
 
     @property
     def x_limits(self):
-        """ tuple: x coordinate limits. """
+        """ tuple : x coordinate limits. """
         x0, x1, y0, y1 = self.bounds
         return (x0, x1)
 
     @property
     def y_limits(self):
-        """ tuple: y coordinate limits. """
+        """ tuple : y coordinate limits. """
         x0, x1, y0, y1 = self.bounds
         return (y0, y1)
 
     @property
     def threshold(self):
-        """ float: Threshold defined by the minimum coordinate extent. """
+        """ float : Threshold defined by the minimum coordinate extent. """
         x0, x1, y0, y1 = self.bounds
         return min(abs(x1 - x0), abs(y1 - y0)) / 100.
 
@@ -579,8 +579,13 @@ class PROJ4Projection(ccrs.Projection):
 
         Parameters
         ----------
-        proj4_terms: dict
+        proj4_terms : dict
             PROJ4 parameters including terms that are irrelevant for the globe.
+
+        Returns
+        -------
+        ccrs.Globe
+            Cartopy `Globe` instance representing a projection.
         """
 
         globe_terms = filter(lambda term: term[0] in self._GLOBE_PARAMS,

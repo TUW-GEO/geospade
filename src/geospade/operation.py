@@ -404,9 +404,9 @@ def xy2ij(x, y, gt):
     Parameters
     ----------
     x : float
-        World system coordinate in X direction.
+        World system coordinate in x direction.
     y : float
-        World system coordinate in Y direction.
+        World system coordinate in y direction.
     gt : tuple
         Geo-transformation parameters/dictionary.
 
@@ -448,9 +448,9 @@ def ij2xy(i, j, gt, origin="ul"):
     Returns
     -------
     x : float
-        World system coordinate in X direction.
+        World system coordinate in x direction.
     y : float
-        World system coordinate in Y direction.
+        World system coordinate in y direction.
     """
 
     px_shift_map = {"ul": (0, 0),

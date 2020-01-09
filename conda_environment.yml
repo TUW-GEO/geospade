@@ -1,10 +1,9 @@
 name: geospade
 channels:
     - conda-forge
-    - defaults
 dependencies:
     - python=3.6
-    - gdal
+    - gdal<=3.0.0
     - numpy
     - pyproj
     - cartopy

@@ -480,6 +480,14 @@ class RasterGeometry(object):
 
 
     def to_cartopy_crs(self, bounds=None):
+        """
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        """
         if bounds is None:
             bounds = (self.ll_x, self.ur_x, self.ll_y, self.ur_y)
         return self.sref.get_cartopy_crs(bounds=bounds)
@@ -783,10 +791,12 @@ class RasterGeometry(object):
             return self.intersection(boundary, segment_size=segment_size, inplace=False)
 
 class RasterGrid(metaclass=abc.ABCMeta):
-    def __init__(self, raster_geoms, adjacency_map=None, map_type=None):
+    def __init__(self, raster_geoms, adjacency_map=None, map_type=None, parent=None):
         self.geoms = raster_geoms
-        self.geom_ids = [raster_geom.geom_id for raster_geom in raster_geoms]
+        self._geom_ids = [raster_geom.geom_id for raster_geom in raster_geoms]
         self.map_type = map_type
+        self.parent = parent
+
         if adjacency_map is None:
             if map_type == "dict":
                 self.adjacency_map = self.__build_adjacency_dict()
@@ -799,6 +809,16 @@ class RasterGrid(metaclass=abc.ABCMeta):
                 raise Exception(err_msg)
         else:
             self.adjacency_map = adjacency_map
+
+        # get spatial reference info from first raster geometry
+        self.sref = self.geoms[0].sref
+        self.ori = self.geoms[0].ori
+
+    @property
+    def ids(self):
+        if self._geom_ids is None:
+            self._geom_ids = [raster_geom.geom_id for raster_geom in self.geoms]
+        return self._geom_ids
 
     def __build_adjacency_matrix(self):
         n = len(self.geoms)
@@ -821,9 +841,9 @@ class RasterGrid(metaclass=abc.ABCMeta):
         for i in range(1, self.geoms):
             if not self.geoms[i].touches(self.geoms[i - 1]):
                 adjacency_list.append(row)
-                row = [self.geoms[i]]
+                row = [i]
             else:
-                row.append(self.geoms[i])
+                row.append(i)
 
         return np.array(adjacency_list)
 
@@ -833,6 +853,8 @@ class RasterGrid(metaclass=abc.ABCMeta):
         for i in range(n):
             neighbours = []
             for j in range(n):
+                if i == j:
+                    continue
                 if self.geoms[i].touches(self.geoms[j]):
                     neighbours.append(self.geoms[j])
             adjacency_dict[i] = neighbours
@@ -840,11 +862,11 @@ class RasterGrid(metaclass=abc.ABCMeta):
         return adjacency_dict
 
     def _get_raster_geom(self, geom_id):
-        idx = self.geom_ids.index(geom_id)
+        idx = self.ids.index(geom_id)
         return self.geoms[idx]
 
     def neighbours(self, raster_geom):
-        idx = self.geom_ids.index(raster_geom.id)
+        idx = self.ids.index(raster_geom.id)
         if self.map_type == "dict":
             return self.adjacency_map[idx]
         elif self.map_type == "matrix":
@@ -880,9 +902,19 @@ class RasterGrid(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def intersection(self, other, inplace=True, **kwargs):
         if self.map_type == "array":
-            geoms_intersected =
+            geoms_intersected, adjacency_map = self._array_intersection(other, **kwargs)
         else:
+            adjacency_map = None
             geoms_intersected = self._simple_intersection(other, **kwargs)
+
+        raster_grid = RasterGrid(geoms_intersected, adjacency_map=adjacency_map, map_type=self.map_type, parent=self)
+        if inplace:
+            self.adjacency_map = adjacency_map
+            self._geom_ids = None
+            self.geoms = geoms_intersected
+            return self
+        else:
+            return raster_grid
 
     def _simple_intersection(self, other, **kwargs):
         geoms_intersected = []
@@ -905,24 +937,59 @@ class RasterGrid(metaclass=abc.ABCMeta):
         return geoms_intersected
 
     def _array_intersection(self, other, **kwargs):
-        raster_geom_l = np.nanargmin(self.adjacency_map, axis=1)
-        gt = ()
-        array_geom = RasterGeometry(self.adjacency_map.shape[0], self.adjacency_map.shape[1],)
 
-    def __check_geom(self):
-        pass
+        # create RasterGeometry, which describes the array
+        rows, cols = np.where(~np.isnan(self.adjacency_map))
+        raster_geom_u = self.geoms[min(rows)]
+        raster_geom_l = self.geoms[min(cols)]
+        gt = construct_geotransform((raster_geom_l.ul_x, raster_geom_u.ul_y), self.ori,
+                                    (raster_geom_u.width, raster_geom_u.height), deg=False)
+        array_geom = RasterGeometry(self.adjacency_map.shape[0], self.adjacency_map.shape[1], self.sref,
+                                    gt)
+        # transform the given geometry to the spatial reference of the grid
+        other = other.TransformTo(self.sref)
+        extent = other.GetEnvelope()
+        # extract boundaries and adjacency array
+        ll_r, ll_c = array_geom.xy2rc(extent[0], extent[1])
+        ur_r, ur_c = array_geom.xy2rc(extent[2], extent[3])
+        adjacency_map_roi = self.adjacency_map[ur_r:(ll_r + 1), ll_c:(ur_c + 1)]
+        # get intersected raster geometries
+        raster_geoms_roi = self.geoms[adjacency_map_roi.flatten()]
+        raster_geoms_roi = raster_geoms_roi[~np.isnan(raster_geoms_roi)]
+        # recreate adjacency array
+        adjacency_map_list = list(range(adjacency_map_roi.shape[0]*adjacency_map_roi.shape[1]))
+        adjacency_map = np.array(adjacency_map_list).reshape(adjacency_map_roi.shape)
 
-    def __getitem__(self, key):
-        if isinstance(key, str):
-            return self._get_raster_geom(key)
-        elif isinstance(key, tuple):
-            x_min =
-            y_min =
-            x_max =
-            y_max =
-            p_1 = (x_min, y_min)
-            p_2 = (x_min, y_max)
-            p_3 = (x_max, y_max)
-            p_4 = (x_max, y_min)
-            geom_roi = Polygon([p_1, p_2, p_3, p_4, p_1])
-            return self.intersection(geom_roi)
+        return raster_geoms_roi, adjacency_map
+
+    def __getitem__(self, item):
+        if isinstance(item, str):
+            return self._get_raster_geom(item)
+        elif isinstance(item, tuple):
+            if len(item) != 2:
+                raise ValueError('Index must be a tuple containing the x and y coordinates.')
+            else:
+                if isinstance(item[0], slice):
+                    min_x = item[0].start
+                    max_x = item[0].stop
+                    segment_size = item[0].step
+                else:
+                    min_x = item[0]
+                    max_x = item[0]
+                    segment_size = None
+
+                if isinstance(item[1], slice):
+                    min_y = item[1].start
+                    max_y = item[1].stop
+                    segment_size = item[1].step
+                else:
+                    min_y = item[1]
+                    max_y = item[1]
+
+                extent = [min_x, min_y, max_x, max_y]
+                boundary = bbox_to_polygon(extent, osr_sref=self.sref.osr_sref, segment=segment_size)
+
+                return self.intersection(boundary, segment_size=segment_size, inplace=False)
+        else:
+            err_msg = "Key is only allowed to be of type str or tuple."
+            KeyError(err_msg)

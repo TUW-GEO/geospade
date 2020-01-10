@@ -94,7 +94,7 @@ class RasterGeometry:
     It describes the extent and the grid of the raster along with its spatial reference.
     The (boundary) geometry can be used as an OGR geometry, or can be exported into a Cartopy projection.
     """
-    # TODO: add segment_size test
+
     def __init__(self, rows, cols, sref,
                  gt=(0, 1, 0, 0, 0, 1),
                  geom_id=None,
@@ -454,8 +454,8 @@ class RasterGeometry:
 
         Returns
         -------
-        RasterGeometry
-            Raster geometry instance defined by the bounding box of intersection geometry.
+        geospade.definition.RasterGeometry
+            Raster geometry instance defined by the bounding box of the intersection geometry.
         """
         if not self.intersects(other):
             return None
@@ -627,7 +627,7 @@ class RasterGeometry:
 
         Returns
         -------
-        RasterGeometry
+        geospade.definition.RasterGeometry
             Scaled raster geometry.
         """
 
@@ -659,7 +659,7 @@ class RasterGeometry:
 
         Returns
         -------
-        RasterGeometry
+        geospade.definition.RasterGeometry
             Resized raster geometry.
         """
 
@@ -760,13 +760,13 @@ class RasterGeometry:
 
         Parameters
         ----------
-        other: RasterGeometry
-                        Raster geometry object to compare with.
+        other: geospade.definition.RasterGeometry
+            Raster geometry object to compare with.
 
         Returns
         -------
-        bool:
-                    True if both raster geometries are the same, otherwise false.
+        bool
+            True if both raster geometries are the same, otherwise false.
         """
 
         return self.vertices == other.vertices and \
@@ -780,47 +780,60 @@ class RasterGeometry:
 
         Parameters
         ----------
-        other: RasterGeometry
-                        Raster geometry object to compare with.
+        other: geospade.definition.RasterGeometry
+            Raster geometry object to compare with.
 
         Returns
         -------
-        bool:
-                    True if both raster geometries are the not the same, otherwise false.
+        bool
+            True if both raster geometries are the not the same, otherwise false.
         """
 
         return not self == other
 
     def __and__(self, other):
         """
-        And operation intersects both raster geometries.
+        AND operation intersects both raster geometries.
 
         Parameters
         ----------
-        other: RasterGeometry
-                        Raster geometry object to intersect with.
+        other: geospade.definition.RasterGeometry
+            Raster geometry object to intersect with.
 
         Returns
         -------
-        RasterGeometry
-    Bounding box of intersection geometry.
+        geospade.definition.RasterGeometry
+            Raster geometry instance defined by the bounding box of the intersection geometry.
         """
 
         return self.intersection(other)
 
     def __repr__(self):
         """
-        String representation of a raster geometry as WKT string.
+        String representation of a raster geometry as a Well Known Text (WKT) string.
 
         Returns
         -------
-        str:
-                        WKT string representing the raster geometry.
+        str
+            WKT string representing the raster geometry.
         """
 
-        return self.geometry.wkt
+        return self.to_wkt()
 
     def __getitem__(self, item):
+        """
+        Handles indexing of a raster geometry, which is herein defined as a 2D spatial indexing via x and y coordinates.
+
+        Parameters
+        ----------
+        item : 2-tuple
+            Tuple containing coordinate slices (e.g., (10:100,20:200)) or coordinate values.
+
+        Returns
+        -------
+        geospade.definition.RasterGeometry
+            Raster geometry defined by the intersection.
+        """
 
         if not isinstance(item, tuple) or (isinstance(item, tuple) and len(item) != 2):
             raise ValueError('Index must be a tuple containing the x and y coordinates.')

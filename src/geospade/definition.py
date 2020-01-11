@@ -682,16 +682,16 @@ class RasterGeometry:
                 if unit == '':
                     scale_factor = buffer_size_i
                 elif unit == 'px':
-                    scale_factor = buffer_size_i/self.rows
+                    scale_factor = buffer_size_i/(self.rows*0.5)  # 0.5 because buffer size always refers to half the edge length
                 else:
-                    scale_factor = buffer_size_i/self.height
+                    scale_factor = buffer_size_i/(self.height*0.5)
             else:
                 if unit == '':
                     scale_factor = buffer_size_i
                 elif unit == 'px':
-                    scale_factor = buffer_size_i/self.cols
+                    scale_factor = buffer_size_i/(self.cols*0.5)
                 else:
-                    scale_factor = buffer_size_i/self.width
+                    scale_factor = buffer_size_i/(self.width*0.5)
 
             scale_factors.append(scale_factor)
 
@@ -704,11 +704,11 @@ class RasterGeometry:
         max_x = max(xs)
         max_y = max(ys)
 
-        # resize extent
-        res_min_x = min_x - self.width * scale_factors[0]
-        res_min_y = min_y - self.height * scale_factors[3]
-        res_max_x = max_x + self.width * scale_factors[1]
-        res_max_y = max_y + self.height * scale_factors[2]
+        # resize extent (0.5 because buffer size always refers to half the edge length)
+        res_min_x = min_x - self.width * scale_factors[0] * 0.5
+        res_min_y = min_y - self.height * scale_factors[3] * 0.5
+        res_max_x = max_x + self.width * scale_factors[1] * 0.5
+        res_max_y = max_y + self.height * scale_factors[2] * 0.5
 
         # create new boundary geometry and rotate it back
         new_boundary = Polygon(((res_min_x, res_min_y),

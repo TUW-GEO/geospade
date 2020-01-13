@@ -5,6 +5,7 @@ import osr
 import ogr
 import copy
 import shapely
+import shapely.wkt
 from shapely import affinity
 
 import numpy as np
@@ -26,6 +27,7 @@ from geospade.operation import ij2xy
 from geospade.operation import bbox_to_polygon
 
 from geospade.spatial_ref import SpatialRef
+from geospade import DECIMALS
 
 
 def _any_geom2ogr_geom(f):
@@ -43,21 +45,21 @@ def _any_geom2ogr_geom(f):
         Wrapper around `f`.
     """
 
-    def wrapper(*args, **kwargs):
+    def wrapper(self, *args, **kwargs):
         sref = kwargs.get("sref", None)
         if isinstance(sref, SpatialRef):
             sref = sref.osr_sref
 
         geom = args[0]
         if isinstance(geom, RasterGeometry):
-            geom = geom.geometry
+            geom = geom.boundary
 
         ogr_geom = any_geom2ogr_geom(geom, osr_sref=sref)
         if len(args) > 1:
-            return f(ogr_geom, **kwargs)
-        else:
             args = args[1:]
-            return f(ogr_geom, *args, **kwargs)
+            return f(self, ogr_geom, *args, **kwargs)
+        else:
+            return f(self, ogr_geom, **kwargs)
 
     return wrapper
 
@@ -145,7 +147,10 @@ class RasterGeometry:
         boundary = Polygon(self.vertices)
         boundary_ogr = ogr.CreateGeometryFromWkt(boundary.wkt)
         boundary_ogr.AssignSpatialReference(self.sref.osr_sref)
-        self.boundary = segmentize_geometry(boundary_ogr, segment=segment_size)
+        if segment_size is not None:
+            self.boundary = segmentize_geometry(boundary_ogr, segment=segment_size)
+        else:
+            self.boundary = boundary_ogr
 
     @classmethod
     def from_extent(cls, extent, sref, x_pixel_size, y_pixel_size, **kwargs):
@@ -215,23 +220,35 @@ class RasterGeometry:
         RasterGeometry
         """
 
-        geom = shapely.wkt.loads(geom.ExportToWKT())
+        geom = shapely.wkt.loads(geom.ExportToWkt())
         geom_ch = geom.convex_hull
 
         if is_rectangular(geom_ch):  # This means the polygon can be described directly as a RasterGeometry
             geom_pts = list(geom.exterior.coords)  # get boundary coordinates
             # separate coordinates
-            xs = [geom_pt[0] for geom_pt in geom_pts]
-            ys = [geom_pt[1] for geom_pt in geom_pts]
+            xs = np.array([geom_pt[0] for geom_pt in geom_pts[:-1]])
+            ys = np.array([geom_pt[1] for geom_pt in geom_pts[:-1]])
             # find corner coordinates
-            ul_x = min(xs)
-            ul_y = max(ys)
-            lr_x = max(xs)
-            lr_y = min(ys)
-            ur_x = lr_x
-            ur_y = ul_y
-            ll_x = ul_x
-            ll_y = lr_y
+            # first, find upper left coordinates (a corner with the highest y coordinate from the two with the
+            # smallest x coordinate)
+            ul_idx_1 = np.argmin(xs)
+            xs_tmp = copy.copy(xs)
+            xs_tmp[ul_idx_1] = np.max(xs)
+            ul_idx_2 = np.argmin(xs_tmp)
+            if ys[ul_idx_1] >= ys[ul_idx_2]:
+                ul_idx = ul_idx_1
+            else:
+                ul_idx = ul_idx_2
+
+            # based on the upper left corner, find the other corner coordinates in a clockwise way
+            ul_x = xs[ul_idx]
+            ul_y = ys[ul_idx]
+            ur_x = xs[ul_idx-1]
+            ur_y = ys[ul_idx-1]
+            lr_x = xs[ul_idx-2]
+            lr_y = ys[ul_idx-2]
+            ll_x = xs[ul_idx-3]
+            ll_y = ys[ul_idx-3]
 
             # azimuth of the bottom base of the rectangle = orientation
             rot = np.arctan2(lr_y - ll_y, lr_x - ll_x)
@@ -242,8 +259,8 @@ class RasterGeometry:
             # define raster properties
             width = np.hypot(lr_x - ll_x, lr_y - ll_y)
             height = np.hypot(ur_x - lr_x, ur_y - lr_y)
-            rows = abs(np.ceil(height / y_pixel_size))
-            cols = abs(np.ceil(width / x_pixel_size))
+            rows = np.ceil(round(abs(height / y_pixel_size), DECIMALS))
+            cols = np.ceil(round(abs(width / x_pixel_size), DECIMALS))
 
             return RasterGeometry(rows, cols, sref, gt=gt, **kwargs)
         else:
@@ -392,7 +409,7 @@ class RasterGeometry:
         str
         """
 
-        return self.boundary.ExportToWKT()
+        return self.boundary.ExportToWkt()
 
     @_any_geom2ogr_geom
     def intersects(self, other):
@@ -532,7 +549,7 @@ class RasterGeometry:
         c, r = xy2ij(x, y, self.gt)
         return r, c
 
-    def rc2xy(self, r, c, origin="ll"):
+    def rc2xy(self, r, c, origin="ul"):
         """
         Returns the coordinates of the center or a corner (dependend on ˋoriginˋ) of a pixel specified
         by a row and column number.
@@ -673,7 +690,7 @@ class RasterGeometry:
         # first, convert the geometry to a shapely geometry
         boundary = shapely.wkt.loads(self.boundary.ExportToWKT())
         # then, rotate the geometry to be axis parallel if it is not axis parallel
-        boundary = affinity.rotate(boundary.convex_hull, -self.ori, 'center')
+        boundary = affinity.rotate(boundary.convex_hull, -self.ori*np.pi/180., 'center')
         # loop over all edges
         scale_factors = []
         for i in range(len(buffer_size)):
@@ -716,7 +733,7 @@ class RasterGeometry:
                                 (res_max_x, res_max_y),
                                 (res_max_x, res_min_y),
                                 (res_min_x, res_min_y)))
-        new_boundary = affinity.rotate(new_boundary, self.ori, 'center')
+        new_boundary = affinity.rotate(new_boundary, self.ori*np.pi/180., 'center')
 
         if segment_size is None:
             segment_size = self._segment_size

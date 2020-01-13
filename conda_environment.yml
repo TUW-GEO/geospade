@@ -9,3 +9,4 @@ dependencies:
     - cartopy
     - shapely
     - numba
+    - opencv

@@ -105,7 +105,6 @@ def rasterise_polygon(points, sres=1., buffer=0.):
     return raster
 
 
-@jit(nopython=True)
 def get_quadrant(x, y):
     """
     Returns the quadrant in a mathematical positive system:
@@ -140,7 +139,6 @@ def get_quadrant(x, y):
         return None
 
 
-@jit(nopython=True)
 def construct_geotransform(origin, rot, px, deg=True):
     """
     A helper function, that constructs the GDAL Geotransform tuple given the
@@ -167,16 +165,15 @@ def construct_geotransform(origin, rot, px, deg=True):
 
     gt = [0, 1, 0, 0, 0, 1]
     gt[0], gt[3] = origin
-    alpha = round(math.radians(rot)) if deg else rot
+    alpha = round(np.radians(rot)) if deg else rot
     x_ps, y_ps = px
-    gt[1] = math.cos(alpha) * x_ps
-    gt[2] = -math.sin(alpha) * x_ps
-    gt[4] = math.sin(alpha) * y_ps
-    gt[5] = math.cos(alpha) * y_ps
+    gt[1] = np.cos(alpha) * x_ps
+    gt[2] = -np.sin(alpha) * x_ps
+    gt[4] = np.sin(alpha) * y_ps
+    gt[5] = np.cos(alpha) * y_ps
     return tuple(gt)
 
 
-@jit(nopython=True)
 def polar_point(orig, dist, angle):
     """
     Computes a new point by specifying a distance and an azimuth from a given
@@ -192,12 +189,12 @@ def polar_point(orig, dist, angle):
         coordinates of new point
     """
     x, y = orig
-    nx = round(x + dist * math.cos(angle),13)
-    ny = round(y + dist * math.sin(angle),13)
+    nx = round(x + dist * np.cos(angle), 13)
+    ny = round(y + dist * np.sin(angle), 13)
 
     return nx, ny
 
-@jit(nopython=True)
+
 def get_inner_angles(polygon, deg=True):
     """
 
@@ -221,7 +218,7 @@ def get_inner_angles(polygon, deg=True):
         polygon = shapely.wkt.loads(polygon.ExportToWKT())
 
     vertices = list(polygon.exterior.coords)
-    vertices = vertices.append(vertices[1])
+    vertices.append(vertices[1])
     inner_angles = []
     for i in range(1, len(vertices)-1):
         prev_vertice = np.array(vertices[i-1])
@@ -378,7 +375,7 @@ def any_geom2ogr_geom(geom, osr_sref=None):
 
     if isinstance(geom, (tuple, list)) and (len(geom) == 2) and isinstance(geom[0], (tuple, list)) \
             and isinstance(geom[1], (tuple, list)):
-        geom_ogr = bbox2polygon(geom, osr_sref=osr_sref)
+        geom_ogr = bbox_to_polygon(geom, osr_sref=osr_sref)
     elif isinstance(geom, (tuple, list)) and (len(geom) == 4) and (all([isinstance(x, (float, int)) for x in geom])):
         bbox_geom = [(geom[0], geom[1]), (geom[2], geom[3])]
         geom_ogr = any_geom2ogr_geom(bbox_geom, osr_sref=osr_sref)

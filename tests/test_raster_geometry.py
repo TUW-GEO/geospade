@@ -1,6 +1,7 @@
 import unittest
 import random
 import shapely
+import shapely.wkt
 import numpy as np
 from shapely import affinity
 from shapely.geometry import Polygon
@@ -17,37 +18,37 @@ class TestRasterGeometry(unittest.TestCase):
         self.sref = SpatialRef(4326)
 
         # define region of interest/extent
-        ll_x = random.randrange(-50, 50, 10)
-        ll_y = random.randrange(-50, 50, 10)
-        ur_x = ll_x + random.randrange(10, 50, 10)
-        ur_y = ll_y + random.randrange(10, 50, 10)
+        ll_x = random.randrange(-50., 50., 10.)
+        ll_y = random.randrange(-50., 50., 10.)
+        ur_x = ll_x + random.randrange(10., 50., 10.)
+        ur_y = ll_y + random.randrange(10., 50., 10.)
         self.geom = Polygon((
             (ll_x, ll_y),
             (ur_x, ll_y),
             (ur_x, ur_y),
             (ll_x, ur_y)
         ))
-        self.extent = (ll_x, ll_y, ur_x, ur_y)
+        self.extent = tuple(map(float, (ll_x, ll_y, ur_x, ur_y)))
         self.x_pixel_size = 0.5
         self.y_pixel_size = -0.5
         self.raster_geom = RasterGeometry.from_extent(self.extent, self.sref, self.x_pixel_size, self.y_pixel_size)
 
         # create rotated raster geometry
-        geom_nap = affinity.rotate(self.geom, 45 * np.pi / 180., 'center')
+        geom_nap = affinity.rotate(self.geom, 45, 'center')
         self.raster_geom_rot = RasterGeometry.from_geometry(geom_nap, self.x_pixel_size, self.y_pixel_size,
                                                             sref=self.sref)
 
     def test_from_extent(self):
         """ Tests setting up a raster geometry from a given extent. """
 
-        assert self.raster_geom.extent == self.extent
+        self.assertTupleEqual(self.raster_geom.extent, self.extent)
 
     def test_from_geom(self):
         """ Tests setting up a raster geometry from a given geometry. """
 
-        raster_geom = RasterGeometry.from_geometry(self.geom, 0.5, -0.5, sref=self.sref)
+        raster_geom = RasterGeometry.from_geometry(self.geom, self.x_pixel_size, self.y_pixel_size, sref=self.sref)
 
-        assert shapely.loads.wkt(raster_geom.boundary.ExportToWkt()) == self.geom
+        self.assertListEqual(raster_geom.vertices, list(self.geom.exterior.coords))
 
     def test_get_common_geom(self):
         """ Tests the creation of an encasing raster geometry from multiple raster geometries. """
@@ -73,7 +74,7 @@ class TestRasterGeometry(unittest.TestCase):
         raster_geom = RasterGeometry.get_common_geometry([raster_geom_a, raster_geom_b, raster_geom_c])
         new_extent = (raster_geom_b.ll_x, raster_geom_b.ll_y, raster_geom_c.ur_x, raster_geom_c.ur_y)
 
-        assert raster_geom.extent == new_extent
+        assert self.assertTupleEqual(raster_geom.extent, new_extent)
 
         # test if error is raised, when raster geometries with different resolutions are joined
         try:
@@ -116,7 +117,7 @@ class TestRasterGeometry(unittest.TestCase):
                     (self.extent[0], self.extent[3]),
                     (self.extent[0], self.extent[1])]
 
-        assert self.raster_geom.vertices == vertices
+        assert self.assertTupleEqual(self.raster_geom.vertices, vertices)
 
     def test_intersection(self):
         """ Test intersection with different geometries. """
@@ -160,7 +161,7 @@ class TestRasterGeometry(unittest.TestCase):
 
         # create raster geometry which has a slightly smaller extent
         raster_geom_reszd = self.raster_geom.resize(-abs(self.x_pixel_size)/5., unit='sr', inplace=False)
-        
+
         # execute intersection with 'snap_to_grid=True'
         raster_geom_intsct = self.raster_geom.intersection(raster_geom_reszd, snap_to_grid=True, inplace=False)
         assert raster_geom_intsct == self.raster_geom
@@ -258,8 +259,8 @@ class TestRasterGeometry(unittest.TestCase):
     def test_equal(self):
         """ Tests if two raster geometries are equal (one created from an extent, one from a geometry). """
 
-        raster_geom_a = RasterGeometry.from_extent(self.extent, self.sref, 0.5, -0.5)
-        raster_geom_b = RasterGeometry.from_geometry(self.geom, 0.5, -0.5, sref=self.sref)
+        raster_geom_a = self.raster_geom
+        raster_geom_b = RasterGeometry.from_geometry(self.geom, self.x_pixel_size, self.y_pixel_size, sref=self.sref)
 
         assert raster_geom_a == raster_geom_b
 
@@ -267,8 +268,8 @@ class TestRasterGeometry(unittest.TestCase):
         """ Tests if two raster geometries are not equal. """
 
         # create raster geometries from the given extent
-        raster_geom_a = RasterGeometry.from_extent(self.extent, self.sref, 0.5, -0.5)
-        raster_geom_b = RasterGeometry.from_extent(self.extent, self.sref, 0.5, -0.5)
+        raster_geom_a = self.raster_geom
+        raster_geom_b = RasterGeometry.from_extent(self.extent, self.sref, self.x_pixel_size, self.y_pixel_size)
 
         # resize second raster geometry
         raster_geom_b.scale(0.5)
@@ -278,8 +279,8 @@ class TestRasterGeometry(unittest.TestCase):
     def test_and(self):
         """ Tests AND operation, which is an intersection between both raster geometries. """
 
-        raster_geom_a = RasterGeometry.from_extent(self.extent, self.sref, 0.5, -0.5)
-        raster_geom_b = RasterGeometry.from_geometry(self.geom, 0.5, -0.5, sref=self.sref)
+        raster_geom_a = self.raster_geom
+        raster_geom_b = RasterGeometry.from_geometry(self.geom, self.x_pixel_size, self.y_pixel_size, sref=self.sref)
 
         self.assertEqual(raster_geom_a & raster_geom_b, raster_geom_b & raster_geom_a)
 
@@ -297,9 +298,27 @@ class TestRasterGeometry(unittest.TestCase):
     def test_indexing(self):
         """ Tests `__get_item__` method, which is used for intersecting a raster geometry. """
 
+        # test indexing within the boundaries of the raster geometry
+        raster_geom_scaled = self.raster_geom.scale(0.5, inplace=False)
+        (ll_x, ll_y, ur_x, ur_y) = raster_geom_scaled.extent
+        raster_geom_intsctd = self.raster_geom[ll_x:ur_x, ll_y:ur_y]
 
+        assert raster_geom_scaled == raster_geom_intsctd
 
         # test indexing with new segment size
+        raster_geom_intsctd = self.raster_geom[ll_x:ur_x:0.1, ll_y:ur_y:0.1]
+        assert raster_geom_intsctd._segment_size == 0.1
+
+
+class TestRasterGrid(unittest.TestCase):
+    """ Tests functionalities of `RasterGrid`. """
+
+    def setUp(self):
+        pass
 
 if __name__ == '__main__':
-    unittest.main()
+    #unittest.main()
+    tester = TestRasterGeometry()
+    tester.setUp()
+    tester.test_from_extent()
+    tester.test_from_geom()

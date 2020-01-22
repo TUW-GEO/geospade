@@ -96,7 +96,7 @@ class RasterGeometry:
     It describes the extent and the grid of the raster along with its spatial reference.
     The (boundary) geometry can be used as an OGR geometry, or can be exported into a Cartopy projection.
     """
-
+    # TODO: add precise description of orientation (mathematic negativ formulation, like it is done in Geotransform)
     def __init__(self, rows, cols, sref,
                  gt=(0, 1, 0, 0, 0, 1),
                  geom_id=None,
@@ -186,8 +186,8 @@ class RasterGeometry:
         ul_x, ul_y = polar_point((ll_x, ll_y), height, np.pi / 2.)
         gt = (ul_x, x_pixel_size, 0, ul_y, 0, y_pixel_size)
         # deal negative pixel sizes, hence the absolute value
-        rows = abs(np.ceil(height / y_pixel_size))
-        cols = abs(np.ceil(width / x_pixel_size))
+        rows = np.ceil(round(abs(height / y_pixel_size), DECIMALS))
+        cols = np.ceil(round(abs(width / x_pixel_size), DECIMALS))
         return cls(rows, cols, sref, gt=gt, **kwargs)
 
     @classmethod
@@ -251,7 +251,9 @@ class RasterGeometry:
             ll_y = ys[ul_idx-3]
 
             # azimuth of the bottom base of the rectangle = orientation
+            # TODO: test different cases!
             rot = np.arctan2(lr_y - ll_y, lr_x - ll_x)
+            rot = rot*-1 if rot >= 0. else rot
 
             # create GDAL geotransform
             gt = construct_geotransform((ul_x, ul_y), rot, (x_pixel_size, y_pixel_size), deg=False)
@@ -288,9 +290,12 @@ class RasterGeometry:
         x_pixel_size = raster_geoms[0].x_pixel_size
         y_pixel_size = raster_geoms[0].y_pixel_size
 
-        # define function for checking if all given geometries are consistent, i.e. if they have the same pixel size
-        # and spatial reference.
-        def check_consistency(raster_geom):
+        ll_xs = []
+        ll_ys = []
+        ur_xs = []
+        ur_ys = []
+        for raster_geom in raster_geoms:
+
             if raster_geom.sref != sref:
                 raise ValueError('Geometries have a different spatial reference.')
 
@@ -300,13 +305,6 @@ class RasterGeometry:
             if raster_geom.y_pixel_size != y_pixel_size:
                 raise ValueError('Geometries have different pixel-sizes in y direction.')
 
-        _ = map(raster_geoms, lambda raster_geom: check_consistency(raster_geom))
-
-        ll_xs = []
-        ll_ys = []
-        ur_xs = []
-        ur_ys = []
-        for raster_geom in raster_geoms:
             ll_xs.append(raster_geom.ll_x)
             ll_ys.append(raster_geom.ll_y)
             ur_xs.append(raster_geom.ur_x)
@@ -324,37 +322,38 @@ class RasterGeometry:
     @property
     def ll_x(self):
         """ float : x coordinate of the lower left corner. """
-        x, _ = self.rc2xy(self.rows, 0)
+        x, _ = self.rc2xy(self.rows-1, 0, origin="ll")
         return x
 
     @property
     def ll_y(self):
         """ float: y coordinate of the lower left corner. """
-        _, y = self.rc2xy(self.rows, 0)
+        _, y = self.rc2xy(self.rows-1, 0, origin="ll")
         return y
 
     @property
     def ur_x(self):
         """ float : x coordinate of the upper right corner. """
-        x, _ = self.rc2xy(0, self.cols)
+        x, _ = self.rc2xy(0, self.cols-1, origin="ur")
         return x
 
     @property
     def ur_y(self):
         """ float : y coordinate of the upper right corner. """
-        _, y = self.rc2xy(0, self.cols)
+        _, y = self.rc2xy(0, self.cols-1, origin="ur")
         return y
 
     @property
     def x_pixel_size(self):
         """ float : Pixel size in x direction. """
-        return self.gt[1]
+        return np.hypot(self.gt[1], self.gt[2])
 
     @property
     def y_pixel_size(self):
+        # TODO: add description about minus sign
         """ float : Pixel size in y direction. """
 
-        return self.gt[5]
+        return -np.hypot(self.gt[4], self.gt[5])
 
     @property
     def h_pixel_size(self):
@@ -392,12 +391,13 @@ class RasterGeometry:
         4-list of 2-tuples : A tuple containing all corners in the following form (lower left, lower right,
         upper right, upper left).
         """
-
+        lr_x, lr_y = self.rc2xy(self.rows - 1, self.cols - 1, origin="lr")
+        ul_x, ul_y = self.rc2xy(0, 0, origin="ul")
         vertices = [(self.ll_x, self.ll_y),
-                   polar_point((self.ll_x, self.ll_y), self.width, self.ori),
-                   (self.ur_x, self.ur_y),
-                   polar_point((self.ll_x, self.ll_y), self.height, self.ori + np.pi / 2),
-                   (self.ll_x, self.ll_y)]
+                    (lr_x, lr_y),
+                    (self.ur_x, self.ur_y),
+                    (ul_x, ul_y),
+                    (self.ll_x, self.ll_y)]
         return vertices
 
     def to_wkt(self):
@@ -478,10 +478,10 @@ class RasterGeometry:
             return None
 
         intersection = self.boundary.Intersection(other)
-        bbox = intersection.bounds
+        bbox = intersection.GetEnvelope()
         if snap_to_grid:
-            ll_px = self.xy2rc(bbox[0], bbox[1])
-            ur_px = self.xy2rc(bbox[2], bbox[3])
+            ll_px = self.xy2rc(bbox[0], bbox[2])
+            ur_px = self.xy2rc(bbox[1], bbox[3])
             bbox = self.rc2xy(*ll_px) + self.rc2xy(*ur_px)
 
         if segment_size is None:
@@ -522,7 +522,7 @@ class RasterGeometry:
 
         if bounds is None:
             bounds = self.extent
-        return self.sref.get_cartopy_crs(bounds=bounds)
+        return self.sref.to_cartopy_crs(bounds=bounds)
 
     def xy2rc(self, x, y):
         """
@@ -612,11 +612,11 @@ class RasterGeometry:
             if proj is None:
                 proj = ccrs.Mollweide()
             ax = plt.axes(projection=proj)
-            #ax.set_global()
+            ax.set_global()
             ax.gridlines()
             ax.coastlines()
 
-        boundary = shapely.wkt.loads(self.boundary.ExportToWKT())
+        boundary = shapely.wkt.loads(self.boundary.ExportToWkt())
         patch = PolygonPatch(list(boundary.exterior.coords), color=color, alpha=alpha,
                              transform=trafo, zorder=0)
         ax.add_patch(patch)
@@ -688,52 +688,51 @@ class RasterGeometry:
             raise Exception(err_msg.format(unit))
 
         # first, convert the geometry to a shapely geometry
-        boundary = shapely.wkt.loads(self.boundary.ExportToWKT())
+        boundary = shapely.wkt.loads(self.boundary.ExportToWkt())
         # then, rotate the geometry to be axis parallel if it is not axis parallel
-        boundary = affinity.rotate(boundary.convex_hull, -self.ori*np.pi/180., 'center')
+        boundary = affinity.rotate(boundary.convex_hull, self.ori*180./np.pi, 'center')
         # loop over all edges
         scale_factors = []
-        for i in range(len(buffer_size)):
-            buffer_size_i = buffer_size[i]
+        for i, buffer_size_i in enumerate(buffer_size):
             if (i == 0) or (i == 2):  # left and right edge
                 if unit == '':
-                    scale_factor = buffer_size_i
+                    # -1 because 1 is the original size and we need negative values for shrinking a geometry
+                    # resize extent (0.5 because buffer size always refers to half the edge length)
+                    scale_factor = (buffer_size_i - 1) * 0.5
                 elif unit == 'px':
-                    scale_factor = buffer_size_i/(self.rows*0.5)  # 0.5 because buffer size always refers to half the edge length
+                    scale_factor = buffer_size_i/float(self.cols)
                 else:
-                    scale_factor = buffer_size_i/(self.height*0.5)
+                    scale_factor = buffer_size_i/float(self.width)
             else:
                 if unit == '':
-                    scale_factor = buffer_size_i
+                    scale_factor = (buffer_size_i - 1) * 0.5
                 elif unit == 'px':
-                    scale_factor = buffer_size_i/(self.cols*0.5)
+                    scale_factor = buffer_size_i/float(self.rows)
                 else:
-                    scale_factor = buffer_size_i/(self.width*0.5)
+                    scale_factor = buffer_size_i/float(self.height)
 
             scale_factors.append(scale_factor)
 
         # get extent
         vertices = list(boundary.exterior.coords)
-        xs = [vertice[0] for vertice in vertices]
-        ys = [vertice[1] for vertice in vertices]
+        xs, ys = zip(*vertices)
         min_x = min(xs)
         min_y = min(ys)
         max_x = max(xs)
         max_y = max(ys)
 
-        # resize extent (0.5 because buffer size always refers to half the edge length)
-        res_min_x = min_x - self.width * scale_factors[0] * 0.5
-        res_min_y = min_y - self.height * scale_factors[3] * 0.5
-        res_max_x = max_x + self.width * scale_factors[1] * 0.5
-        res_max_y = max_y + self.height * scale_factors[2] * 0.5
+        res_min_x = min_x - self.width * scale_factors[0]
+        res_min_y = min_y - self.height * scale_factors[3]
+        res_max_x = max_x + self.width * scale_factors[2]
+        res_max_y = max_y + self.height * scale_factors[1]
 
-        # create new boundary geometry and rotate it back
+        # create new boundary geometry (counter-clockwise) and rotate it back
         new_boundary = Polygon(((res_min_x, res_min_y),
-                                (res_min_x, res_max_y),
-                                (res_max_x, res_max_y),
                                 (res_max_x, res_min_y),
+                                (res_max_x, res_max_y),
+                                (res_min_x, res_max_y),
                                 (res_min_x, res_min_y)))
-        new_boundary = affinity.rotate(new_boundary, self.ori*np.pi/180., 'center')
+        new_boundary = affinity.rotate(new_boundary, -self.ori*180./np.pi, 'center')
 
         if segment_size is None:
             segment_size = self._segment_size
@@ -768,7 +767,7 @@ class RasterGeometry:
             True if the given geometry is within the raster geometry, otherwise false.
         """
 
-        return self.boundary.Within(geom)
+        return geom.Within(self.boundary)
 
     def __eq__(self, other):
         """
@@ -872,7 +871,7 @@ class RasterGeometry:
                 min_y = item[1]
                 max_y = item[1]
 
-            extent = [min_x, min_y, max_x, max_y]
+            extent = [(min_x, min_y), (max_x, max_y)]
             boundary = bbox_to_polygon(extent, osr_sref=self.sref.osr_sref, segment=segment_size)
 
             return self.intersection(boundary, segment_size=segment_size, inplace=False)

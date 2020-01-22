@@ -2,11 +2,14 @@ import ogr
 import cv2
 import math
 import shapely
+import warnings
 import numpy as np
 from numba import jit
 from copy import deepcopy
 
 from geospade.errors import GeometryUnkown
+
+from geospade import DECIMALS
 
 
 def rasterise_polygon(points, sres=1., buffer=0.):
@@ -189,8 +192,8 @@ def polar_point(orig, dist, angle):
         coordinates of new point
     """
     x, y = orig
-    nx = round(x + dist * np.cos(angle), 13)
-    ny = round(y + dist * np.sin(angle), 13)
+    nx = round(x + dist * np.cos(angle), DECIMALS)
+    ny = round(y + dist * np.sin(angle), DECIMALS)
 
     return nx, ny
 
@@ -415,9 +418,9 @@ def xy2ij(x, y, gt):
         Row number in pixels.
     """
 
-    i = int(round(-1.0 * (gt[2] * gt[3] - gt[0] * gt[5] + gt[5] * x - gt[2] * y) /
+    i = np.floor((-1.0 * (gt[2] * gt[3] - gt[0] * gt[5] + gt[5] * x - gt[2] * y) /
                   (gt[2] * gt[4] - gt[1] * gt[5])))
-    j = int(round(-1.0 * (-1 * gt[1] * gt[3] + gt[0] * gt[4] - gt[4] * x + gt[1] * y) /
+    j = np.floor((-1.0 * (-1 * gt[1] * gt[3] + gt[0] * gt[4] - gt[4] * x + gt[1] * y) /
                   (gt[2] * gt[4] - gt[1] * gt[5])))
     return i, j
 
@@ -459,8 +462,8 @@ def ij2xy(i, j, gt, origin="ul"):
     if origin in px_shift_map.keys():
         px_shift = px_shift_map[origin]
     else:
-        user_wrng = "Pixel origin '{}' unknown. Upper left origin 'ul' will be taken instead".format(origin)
-        raise Warning(user_wrng)
+        wrng_msg = "Pixel origin '{}' unknown. Upper left origin 'ul' will be taken instead".format(origin)
+        warnings.warn(wrng_msg)
         px_shift = (0, 0)
 
     i += px_shift[0]

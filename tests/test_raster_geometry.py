@@ -55,12 +55,8 @@ class TestRasterGeometry(unittest.TestCase):
 
         # create different raster geometries
         extent_a = self.extent
-        # compute hypotenuse of extent as a shift parameter
-        extent_width = extent_a[2] - extent_a[0]
-        extent_height = extent_a[3] - extent_a[1]
-        extent_hypo = np.hypot(extent_width, extent_height)
-        extent_b = tuple(np.array(extent_a) - extent_hypo)  # shift extent negatively
-        extent_c = tuple(np.array(extent_a) + extent_hypo)  # shift extent positively
+        extent_b = tuple(np.array(extent_a) - 2)  # shift extent negatively
+        extent_c = tuple(np.array(extent_a) + 2)  # shift extent positively
         # create raster geometries from different extents
         raster_geom_a = self.raster_geom
         raster_geom_b = RasterGeometry.from_extent(extent_b, self.sref, self.x_pixel_size, self.y_pixel_size)
@@ -74,7 +70,7 @@ class TestRasterGeometry(unittest.TestCase):
         raster_geom = RasterGeometry.get_common_geometry([raster_geom_a, raster_geom_b, raster_geom_c])
         new_extent = (raster_geom_b.ll_x, raster_geom_b.ll_y, raster_geom_c.ur_x, raster_geom_c.ur_y)
 
-        assert self.assertTupleEqual(raster_geom.extent, new_extent)
+        self.assertTupleEqual(raster_geom.extent, new_extent)
 
         # test if error is raised, when raster geometries with different resolutions are joined
         try:
@@ -117,7 +113,7 @@ class TestRasterGeometry(unittest.TestCase):
                     (self.extent[0], self.extent[3]),
                     (self.extent[0], self.extent[1])]
 
-        assert self.assertTupleEqual(self.raster_geom.vertices, vertices)
+        self.assertListEqual(self.raster_geom.vertices, vertices)
 
     def test_intersection(self):
         """ Test intersection with different geometries. """
@@ -128,19 +124,13 @@ class TestRasterGeometry(unittest.TestCase):
 
         # test intersection with scaled geometry
         raster_geom_scaled = self.raster_geom.scale(0.5, inplace=False)
-        raster_geom_intsct = self.raster_geom.intersection(raster_geom_scaled)
+        raster_geom_intsct = self.raster_geom.intersection(raster_geom_scaled, inplace=False)
 
         assert raster_geom_scaled == raster_geom_intsct
 
         # test intersection with partial overlap
-        extent_width = self.extent[2] - self.extent[0]
-        extent_height = self.extent[3] - self.extent[1]
-        ll_x_shifted = self.extent[0] + extent_width/2.
-        ll_y_shifted = self.extent[1] + extent_height/2.
-        ur_x_shifted = ll_x_shifted + extent_width
-        ur_y_shifted = ll_y_shifted + extent_height
-        extent_shifted = (ll_y_shifted, ll_x_shifted, ur_x_shifted, ur_y_shifted)
-        extent_intsct = (ll_y_shifted, ll_x_shifted, self.extent[2], self.extent[3])
+        extent_shifted = tuple(np.array(self.extent) + 2)
+        extent_intsct = (extent_shifted[0], extent_shifted[1], self.extent[2], self.extent[3])
         raster_geom_shifted = RasterGeometry.from_extent(extent_shifted, self.sref,
                                                          self.x_pixel_size, self.y_pixel_size)
         raster_geom_intsct = self.raster_geom.intersection(raster_geom_shifted, inplace=False)
@@ -149,7 +139,7 @@ class TestRasterGeometry(unittest.TestCase):
 
         # test intersection with no overlap
         extent_no_ovlp = (self.extent[2] + 1., self.extent[3] + 1.,
-                          self.extent[2] + extent_width/2., self.extent[3] + extent_height/2.)
+                          self.extent[2] + 5., self.extent[3] + 5.)
         raster_geom_no_ovlp = RasterGeometry.from_extent(extent_no_ovlp, self.sref,
                                                          self.x_pixel_size, self.y_pixel_size)
         raster_geom_intsct = self.raster_geom.intersection(raster_geom_no_ovlp, inplace=False)
@@ -178,17 +168,15 @@ class TestRasterGeometry(unittest.TestCase):
         """ Tests if raster geometries touch each other. """
 
         # create raster geometry which touches the previous one
-        extent_width = self.extent[2] - self.extent[0]
-        extent_height = self.extent[3] - self.extent[1]
         extent_tchs = (self.extent[2], self.extent[3],
-                       self.extent[2] + extent_width/2., self.extent[3] + extent_height/2.)
+                       self.extent[2] + 5., self.extent[3] + 5.)
         raster_geom_tchs = RasterGeometry.from_extent(extent_tchs, self.sref,
                                                       self.x_pixel_size, self.y_pixel_size)
         assert self.raster_geom.touches(raster_geom_tchs)
 
         # create raster geometry which does not touch the previous one
         extent_no_tchs = (self.extent[2] + 1., self.extent[3] + 1.,
-                       self.extent[2] + extent_width / 2., self.extent[3] + extent_height / 2.)
+                       self.extent[2] + 5., self.extent[3] + 5.)
         raster_geom_no_tchs = RasterGeometry.from_extent(extent_no_tchs, self.sref,
                                                          self.x_pixel_size, self.y_pixel_size)
         assert not self.raster_geom.touches(raster_geom_no_tchs)
@@ -230,31 +218,33 @@ class TestRasterGeometry(unittest.TestCase):
 
         # shrink raster geometry
         raster_geom_shrnkd = self.raster_geom.scale(0.5, inplace=False)
-        extent_shrnkd = (self.extent[0] - extent_width / 4.,
-                         self.extent[1] - extent_height / 4.,
-                         self.extent[2] + extent_width / 4.,
-                         self.extent[3] + extent_height / 4.)
+        extent_shrnkd = (self.extent[0] + extent_width / 4.,
+                         self.extent[1] + extent_height / 4.,
+                         self.extent[2] - extent_width / 4.,
+                         self.extent[3] - extent_height / 4.)
         assert raster_geom_shrnkd.extent == extent_shrnkd
 
         # tests enlargement in pixels with a rotated geometry
+        # TODO: width and height properties change for the rotated geometry -> discuss behaviour with others
         raster_geom_enlrgd = self.raster_geom_rot.scale(2., inplace=False)
-        assert raster_geom_enlrgd.rows == self.raster_geom_rot.rows * 2
-        assert raster_geom_enlrgd.cols == self.raster_geom_rot.cols * 2
+        assert raster_geom_enlrgd.cols == (self.raster_geom_rot.cols * 2)
+        assert raster_geom_enlrgd.rows == (self.raster_geom_rot.rows * 2)
 
     def test_resize(self):
         """ Tests resizing of a raster geometry by pixels and spatial reference units. """
 
         # tests resize in pixels
-        raster_geom_reszd = self.raster_geom.resize([2, 3, 2, -3], unit='px', inplace=False)
-        assert raster_geom_reszd.rows == (self.raster_geom.rows + 4)
-        assert raster_geom_reszd.cols == self.raster_geom.cols
+        buffer_sizes = [2, 3, 2, -3]
+        raster_geom_reszd = self.raster_geom.resize(buffer_sizes, unit='px', inplace=False)
+        assert raster_geom_reszd.rows == self.raster_geom.rows
+        assert raster_geom_reszd.cols == (self.raster_geom.cols + 4)
 
         # tests resize in spatial reference units
-        raster_geom_reszd = self.raster_geom.resize([self.x_pixel_size*2, self.y_pixel_size*3,
-                                                     self.x_pixel_size*2, self.y_pixel_size*-3],
-                                                    unit='sr', inplace=False)
-        assert raster_geom_reszd.rows == (self.raster_geom.rows + 4)
-        assert raster_geom_reszd.cols == self.raster_geom.cols
+        buffer_sizes = [self.x_pixel_size*2, self.y_pixel_size*3,
+                        self.x_pixel_size*2, self.y_pixel_size*-3]
+        raster_geom_reszd = self.raster_geom.resize(buffer_sizes, unit='sr', inplace=False)
+        assert raster_geom_reszd.rows == self.raster_geom.rows
+        assert raster_geom_reszd.cols == (self.raster_geom.cols + 4)
 
     def test_equal(self):
         """ Tests if two raster geometries are equal (one created from an extent, one from a geometry). """
@@ -317,8 +307,4 @@ class TestRasterGrid(unittest.TestCase):
         pass
 
 if __name__ == '__main__':
-    #unittest.main()
-    tester = TestRasterGeometry()
-    tester.setUp()
-    tester.test_from_extent()
-    tester.test_from_geom()
+    unittest.main()

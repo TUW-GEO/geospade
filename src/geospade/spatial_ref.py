@@ -226,7 +226,7 @@ class SpatialRef:
             `PROJ4Projection` instance representing the spatial reference.
         """
 
-        return PROJ4Projection(self.proj4, bounds=bounds)
+        return PROJ4Projection(self.to_proj4_dict(), bounds=bounds)
 
     @staticmethod
     def osr_to_proj4(osr_sref):

@@ -3,10 +3,13 @@ import random
 import shapely
 import shapely.wkt
 import numpy as np
+import cartopy.crs as ccrs
 from shapely import affinity
 from shapely.geometry import Polygon
+
 from geospade.spatial_ref import SpatialRef
 from geospade.definition import RasterGeometry
+from geospade.definition import RasterGrid
 
 
 class TestRasterGeometry(unittest.TestCase):
@@ -201,6 +204,10 @@ class TestRasterGeometry(unittest.TestCase):
 
         self.raster_geom.plot(proj=self.raster_geom.to_cartopy_crs())
 
+        # test plotting with labelling
+        self.raster_geom.id = "E048N018T1"
+        self.raster_geom.plot(proj=ccrs.PlateCarree(), label_geom=True)
+
     def test_scale(self):
         """ Tests scaling of a raster geometry. """
 
@@ -300,11 +307,95 @@ class TestRasterGeometry(unittest.TestCase):
         assert raster_geom_intsctd._segment_size == 0.1
 
 
+# TODO: add randomness
 class TestRasterGrid(unittest.TestCase):
     """ Tests functionalities of `RasterGrid`. """
 
     def setUp(self):
-        pass
+        """
+        Sets up a `RasterGrid` object.
+        It is defined by 3x3 raster geometries/tiles in a LatLon projection.
+        """
+
+        x_pixel_size = 0.01
+        y_pixel_size = -0.01
+        grid_rows = 3
+        grid_cols = 3
+        grid_ul_x = 0.
+        grid_ul_y = 60. + y_pixel_size  # ll pixel coordinate of ul grid coordinate
+        rows = 1600
+        cols = 1600
+
+        sref = SpatialRef(4326)
+
+        roi_x_min = grid_ul_x + cols/2.*x_pixel_size
+        roi_y_max = grid_ul_y + rows/2.*y_pixel_size
+        roi_x_max = roi_x_min + cols*x_pixel_size
+        roi_y_min = roi_y_max + rows * y_pixel_size
+        self.roi = [(roi_x_min, roi_y_min), (roi_x_max, roi_y_max)]
+
+        raster_geoms = []
+        for grid_row in range(grid_rows):
+            for grid_col in range(grid_cols):
+                ul_x = grid_ul_x + grid_col*cols*x_pixel_size
+                ul_y = grid_ul_y + grid_row*rows*y_pixel_size
+                gt = (ul_x, x_pixel_size, 0, ul_y, 0, y_pixel_size)
+                tile_id = "S{:02d}W{:02d}".format(grid_row, grid_col)
+                raster_geom = RasterGeometry(rows, cols, sref, gt=gt, geom_id=tile_id)
+                raster_geoms.append(raster_geom)
+
+        self.raster_grid = RasterGrid(raster_geoms)
+
+    def test_tile_from_id(self):
+        """ Tests retrieval of `RasterGeometry` tile by a given ID. """
+
+        tile = self.raster_grid.tile_from_id("S01W01")
+        assert tile.id == "S01W01"
+
+    def test_neighbours(self):
+        """  Tests retrieval of neighbouring tiles. """
+
+        # tile situated in the center of the raster grid
+        neighbours = self.raster_grid.neighbours_from_id("S01W01")
+        neighbours_id = sorted([neighbour.id for neighbour in neighbours])
+        neighbours_id_should = ["S00W00", "S00W01", "S00W02", "S01W00", "S01W02", "S02W00", "S02W01", "S02W02"]
+
+        self.assertListEqual(neighbours_id, neighbours_id_should)
+
+        # tile situated at the upper-right corner of the raster grid
+        neighbours = self.raster_grid.neighbours_from_id("S00W02")
+        neighbours_id = sorted([neighbour.id for neighbour in neighbours])
+        neighbours_id_should = ["S00W01", "S01W01", "S01W02"]
+
+        self.assertListEqual(neighbours_id, neighbours_id_should)
+
+    def test_intersection(self):
+        """ Tests intersection of a geometry with the raster grid. """
+
+        raster_grid_intsct = self.raster_grid.intersection(self.roi, inplace=False)
+        assert raster_grid_intsct.tile_ids == ["S00W00", "S00W01", "S01W00", "S01W01"]
+        assert raster_grid_intsct.area == self.raster_grid["S00W00"].area
+
+    def test_plotting(self):
+        """ Tests plotting functionalities of a raster grid. """
+
+        # most simple plot
+        self.raster_grid.plot()
+
+        # test plotting with labelling
+        self.raster_grid.plot(proj=ccrs.PlateCarree(), label_tiles=True)
+
+    def test_indexing(self):
+        """ Tests `__get_item__` method, which is used for intersecting a raster grid or retrieving a tile. """
+
+        # tile id indexing
+        assert self.raster_grid["S01W01"].id == "S01W01"
+
+        # spatial indexing
+        extent_should = (self.roi[0][0], self.roi[0][1], self.roi[1][0], self.roi[1][1])
+        raster_grid_intsct = self.raster_grid[extent_should[0]:extent_should[2], extent_should[1]:extent_should[3]]
+
+        self.assertTupleEqual(raster_grid_intsct.extent, extent_should)
 
 if __name__ == '__main__':
     unittest.main()

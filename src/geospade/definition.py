@@ -9,13 +9,13 @@ import shapely.wkt
 from shapely import affinity
 
 import numpy as np
+import geopandas as geopd
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 
-from matplotlib import cm
-from matplotlib.collections import PatchCollection
 from shapely.geometry import Polygon, LineString
-from matplotlib.patches import Polygon as PolygonPatch, Path, PathPatch
+from shapely.ops import cascaded_union
+from matplotlib.patches import Polygon as PolygonPatch
 
 from geospade.operation import polar_point
 from geospade.operation import segmentize_geometry
@@ -46,20 +46,19 @@ def _any_geom2ogr_geom(f):
     """
 
     def wrapper(self, *args, **kwargs):
-        sref = kwargs.get("sref", None)
+        sref = kwargs.get("sref", self.sref.osr_sref if hasattr(self, "sref") else None)
         if isinstance(sref, SpatialRef):
             sref = sref.osr_sref
 
-        geom = args[0]
-        if isinstance(geom, RasterGeometry):
+        geom = args[0]  # get first argument
+        args = args[1:] # remove first argument
+
+        if isinstance(geom, (RasterGeometry, RasterGrid)):
             geom = geom.boundary
 
         ogr_geom = any_geom2ogr_geom(geom, osr_sref=sref)
-        if len(args) > 1:
-            args = args[1:]
-            return f(self, ogr_geom, *args, **kwargs)
-        else:
-            return f(self, ogr_geom, **kwargs)
+
+        return f(self, ogr_geom, *args, **kwargs)
 
     return wrapper
 
@@ -89,7 +88,7 @@ class SwathGeometry:
         err_msg = "'SwathGeometry' is not implemented yet."
         raise NotImplementedError(err_msg)
 
-
+# TODO: add rotation functionality
 class RasterGeometry:
     """
     Represents the geometry of a georeferenced raster.
@@ -377,13 +376,18 @@ class RasterGeometry:
 
     @property
     def extent(self):
-        """ 4-tuple: Extent of the raster geometry. """
+        """ 4-tuple: Extent of the raster geometry (min_x, min_y, max_x, max_y). """
         return self.ll_x, self.ll_y, self.ur_x, self.ur_y
 
     @property
     def area(self):
         """ float : Area covered by the raster geometry. """
         return self.width * self.height
+
+    @property
+    def centre(self):
+        """ 2-tuple: Centre defined by the mass centre of the vertices. """
+        return shapely.wkt.loads(self.boundary.Centroid().ExportToWkt()).coords[0]
 
     @property
     def vertices(self):
@@ -449,8 +453,9 @@ class RasterGeometry:
 
         return touch
 
+    # TODO: add origin
     @_any_geom2ogr_geom
-    def intersection(self, other, snap_to_grid=True, segment_size=None, inplace=True):
+    def intersection(self, other, snap_to_grid=True, segment_size=None, sref=None, inplace=True):
         """
         Computes an intersection figure of two geometries and returns its
         (grid axes-parallel rectangle) bounding box.
@@ -465,6 +470,9 @@ class RasterGeometry:
         segment_size : float, optional
             For precision: distance in input units of longest segment of the geometry polygon.
             If None, only the corner points are used for creating the boundary geometry.
+        sref : geospade.spatial_ref.SpatialRef or osr.SpatialReference, optional
+            Spatial reference of the geometry object.
+            Has to be given if the spatial reference cannot be derived from `other`.
         inplace : bool
             If true, the current instance will be modified.
             If false, a new `RasterGeometry` instance will be created.
@@ -480,9 +488,9 @@ class RasterGeometry:
         intersection = self.boundary.Intersection(other)
         bbox = intersection.GetEnvelope()
         if snap_to_grid:
-            ll_px = self.xy2rc(bbox[0], bbox[2])
-            ur_px = self.xy2rc(bbox[1], bbox[3])
-            bbox = self.rc2xy(*ll_px) + self.rc2xy(*ur_px)
+            ll_px = self.xy2rc(bbox[0], bbox[2], origin="ll")
+            ur_px = self.xy2rc(bbox[1], bbox[3], origin="ur")
+            bbox = self.rc2xy(*ll_px, origin="ll") + self.rc2xy(*ur_px, origin="ur")
 
         if segment_size is None:
             segment_size = self._segment_size
@@ -524,7 +532,7 @@ class RasterGeometry:
             bounds = self.extent
         return self.sref.to_cartopy_crs(bounds=bounds)
 
-    def xy2rc(self, x, y):
+    def xy2rc(self, x, y, origin="ul"):
         """
         Calculates an index of a pixel in which a given point of a world system lies.
 
@@ -534,6 +542,13 @@ class RasterGeometry:
             World system coordinate in x direction.
         y : float
             World system coordinate in y direction.
+        origin : str, optional
+            Defines the world system origin of the pixel. It can be:
+            - upper left ("ul")
+            - upper right ("ur", default)
+            - lower right ("lr")
+            - lower left ("ll")
+            - center ("c")
 
         Returns
         -------
@@ -546,7 +561,7 @@ class RasterGeometry:
         -----
         Rounds to the closest, lower integer.
         """
-        c, r = xy2ij(x, y, self.gt)
+        c, r = xy2ij(x, y, self.gt, origin=origin)
         return r, c
 
     def rc2xy(self, r, c, origin="ul"):
@@ -578,7 +593,7 @@ class RasterGeometry:
 
         return ij2xy(c, r, self.gt, origin=origin)
 
-    def plot(self, ax=None, color='tab:red', alpha=1., proj=None, show=False):
+    def plot(self, ax=None, facecolor='tab:red', edgecolor='black', alpha=1., proj=None, show=False, label_geom=False):
         """
         Plots the boundary of the raster geometry on a map.
 
@@ -588,12 +603,16 @@ class RasterGeometry:
             Pre-defined Matplotlib axis.
         color : str, optional
             Color code as described at https://matplotlib.org/3.1.0/tutorials/colors/colors.html (default is 'tab:red').
+        border_color : str, optional
+            Color code as described at https://matplotlib.org/3.1.0/tutorials/colors/colors.html.
         alpha : float, optional
             Opacity of the boundary polygon (default is 1.).
         proj : cartopy.crs, optional
             Cartopy projection instance defining the projection of the axes.
         show : bool, optional
             If true, the plot result is shown (default is False).
+        label_geom : bool, optional
+            If true, the geometry ID is plotted at the center of the raster geometry (default is False).
 
         Returns
         -------
@@ -617,9 +636,13 @@ class RasterGeometry:
             ax.coastlines()
 
         boundary = shapely.wkt.loads(self.boundary.ExportToWkt())
-        patch = PolygonPatch(list(boundary.exterior.coords), color=color, alpha=alpha,
-                             transform=trafo, zorder=0)
+        patch = PolygonPatch(list(boundary.exterior.coords), facecolor=facecolor, alpha=alpha,
+                             transform=trafo, zorder=0, edgecolor=edgecolor)
         ax.add_patch(patch)
+
+        if self.id is not None and label_geom:
+            transform = proj._as_mpl_transform(ax)
+            ax.annotate(str(self.id), xy=self.centre, xycoords=transform, va="center", ha="center")
 
         if show:
             plt.show()
@@ -825,14 +848,7 @@ class RasterGeometry:
         return self.intersection(other)
 
     def __repr__(self):
-        """
-        String representation of a raster geometry as a Well Known Text (WKT) string.
-
-        Returns
-        -------
-        str
-            WKT string representing the raster geometry.
-        """
+        """ str : String representation of a raster geometry as a Well Known Text (WKT) string. """
 
         return self.to_wkt()
 
@@ -877,181 +893,195 @@ class RasterGeometry:
             return self.intersection(boundary, segment_size=segment_size, inplace=False)
 
 
+# TODO: should consistency be checked, maybe optional, property is valid?
+# TODO: what is exactly allowed for a grid (orientation, size of tiles, ...)?
+# TODO: do I have to set raster_geoms as an optional parameter if the child class doesn't use it?
 class RasterGrid(metaclass=abc.ABCMeta):
-    def __init__(self, raster_geoms, adjacency_map=None, map_type=None, parent=None):
-        self.geoms = raster_geoms
-        self._geom_ids = [raster_geom.geom_id for raster_geom in raster_geoms]
-        self.map_type = map_type
+    """ Represents a homogeneous collection of `RasterGeometry` objects. """
+
+    def __init__(self, raster_geoms, parent=None, segment_size=None):
+        """
+        Constructor of `RasterGrid` class.
+
+        Parameters
+        ----------
+        raster_geoms : list or dict or geopandas.GeoDataFrame
+            Object containing raster geometries and their IDs.
+        parent : RasterGrid, optional
+            Parent raster grid object.
+        segment_size : float, optional
+            For precision: distance in input units of longest segment of the boundary polygon.
+            If None, only the corner points are used for creating the boundary geometry.
+        """
+
+        self.inventory = self.__create_inventory(raster_geoms)
         self.parent = parent
 
-        if adjacency_map is None:
-            if map_type == "dict":
-                self.adjacency_map = self.__build_adjacency_dict()
-            elif map_type == "mat":
-                self.adjacency_map = self.__build_adjacency_matrix()
-            elif map_type == "array":
-                self.adjacency_map = self.__build_adjacency_array()
-            else:
-                err_msg = "Map type '{}' is unknown.".format(map_type)
-                raise Exception(err_msg)
-        else:
-            self.adjacency_map = adjacency_map
-
         # get spatial reference info from first raster geometry
-        self.sref = self.geoms[0].sref
-        self.ori = self.geoms[0].ori
+        self.sref = self.inventory['tile'][0].sref
+        self.ori = self.inventory['tile'][0].ori
+
+        boundary_ogr = ogr.CreateGeometryFromWkt(cascaded_union(self.inventory['geometry']).wkt)
+        boundary_ogr.AssignSpatialReference(self.sref.osr_sref)
+
+        if segment_size is not None:
+            self.boundary = segmentize_geometry(boundary_ogr, segment=segment_size)
+        else:
+            self.boundary = boundary_ogr
 
     @property
-    def ids(self):
-        if self._geom_ids is None:
-            self._geom_ids = [raster_geom.geom_id for raster_geom in self.geoms]
-        return self._geom_ids
+    def tile_ids(self):
+        """  list : IDs of all raster geometries/tiles contained in the raster grid. """
+        return sorted(list(self.inventory.index))
 
-    def __build_adjacency_matrix(self):
-        n = len(self.geoms)
-        i_idxs = []
-        j_idxs = []
-        for i in range(n):
-            for j in range(i, n):
-                if self.geoms[i].touches(self.geoms[j]):
-                    i_idxs.extend([i, j])
-                    j_idxs.extend([j, i])
+    @property
+    def area(self):
+        """ float : Computes area covered the raster grid. """
+        return sum([tile.area for tile in self.inventory['tile']])
 
-        adjacency_matrix = np.zeros((n, n))
-        adjacency_matrix[i_idxs, j_idxs] = 1
+    # TODO: should raster geom be a class variable?
+    @property
+    def extent(self):
+        """ 4-tuple: Extent of the raster geometry (min_x, min_y, max_x, max_y). """
 
-        return adjacency_matrix
+        raster_geom = RasterGeometry.get_common_geometry(list(self.inventory['tile']))
 
-    def __build_adjacency_array(self):
-        adjacency_list = []
-        row = [self.geoms[0]]
-        for i in range(1, self.geoms):
-            if not self.geoms[i].touches(self.geoms[i - 1]):
-                adjacency_list.append(row)
-                row = [i]
-            else:
-                row.append(i)
+        return raster_geom.ll_x, raster_geom.ll_y, raster_geom.ur_x, raster_geom.ur_y
 
-        return np.array(adjacency_list)
+    def __create_inventory(self, raster_geoms):
+        """
+        Creates GeoPandas data frame from the given raster geometries.
 
-    def __build_adjacency_dict(self):
-        n = len(self.geoms)
-        adjacency_dict = dict()
-        for i in range(n):
-            neighbours = []
-            for j in range(n):
-                if i == j:
-                    continue
-                if self.geoms[i].touches(self.geoms[j]):
-                    neighbours.append(self.geoms[j])
-            adjacency_dict[i] = neighbours
+        Parameters
+        ----------
+        raster_geoms : list or dict or geopandas.GeoDataFrame
+            Object containing raster geometries and their IDs.
 
-        return adjacency_dict
+        Returns
+        -------
+        geopandas.DataFrame
+            Data frame with the tile/raster geometry ID's as an index. It contains two columns, a 'geometry' column
+            storing the boundary of a raster geometry and a 'tile' columns storing a `RasterGeometry` object.
+        """
 
-    def _get_raster_geom(self, geom_id):
-        idx = self.ids.index(geom_id)
-        return self.geoms[idx]
+        if isinstance(raster_geoms, dict):
+            tile_ids = list(raster_geoms.keys())
+            raster_geoms = list(raster_geoms.values())
+        elif isinstance(raster_geoms, list):
+            tile_ids = [raster_geom.id for raster_geom in raster_geoms]
+        elif isinstance(raster_geoms, geopd.GeoDataFrame):
+            pass
+        else:
+            err_msg = "Raster geometries must be given as a list, dictionary or Pandas Series, not as '{}'"
+            raise ValueError(err_msg.format(type(raster_geoms)))
 
-    def neighbours(self, raster_geom):
-        idx = self.ids.index(raster_geom.id)
-        if self.map_type == "dict":
-            return self.adjacency_map[idx]
-        elif self.map_type == "matrix":
-            idxs = np.where(self.adjacency_map[idx, :] == 1)
-            return [self.geoms[idx] for idx in idxs]
-        elif self.map_type == "array":
-            map_idx = np.where(self.adjacency_map == idx)
-            i = map_idx[0]
-            j = map_idx[1]
-            map_idxs = [(i - 1, j - 1), (i - 1, j), (i - 1, j + 1), (i, j + 1),
-                        (i + 1, j + 1), (i + 1, j), (i + 1, j - 1), (i, j - 1)]
-            n, m = self.adjacency_map.shape
-            neighbours = []
-            for map_idx in map_idxs:
-                i = map_idx[0]
-                j = map_idx[1]
+        if not isinstance(raster_geoms, geopd.GeoDataFrame):
+            boundaries = [shapely.wkt.loads(raster_geom.to_wkt()) for raster_geom in raster_geoms]
+            inventory = geopd.GeoDataFrame({'tile': raster_geoms, 'geometry': boundaries},
+                                           index=tile_ids, crs=raster_geoms[0].sref.proj4)
+        else:
+            inventory = raster_geoms
 
-                if i < 0:
-                    i = n + i
-                elif i > (n - 1):
-                    i = i - n
+        return inventory
 
-                if j < 0:
-                    j = m + j
-                elif j > (m - 1):
-                    j = j - m
+    def tile_from_id(self, tile_id):
+        """ RasterGeometry : Returns raster geometry according to the given tile ID. """
+        return self.inventory.loc[tile_id]['tile']
 
-                neighbours.append(self.geoms[self.adjacency_map[i, j]])
-
-            return neighbours
+    def neighbours_from_id(self, tile_id):
+        """
+        list of RasterGeometry : Collects the neighbouring raster geometries/tiles
+        according to the given tile ID.
+        """
+        idxs = self.inventory.touches(self.inventory.loc[tile_id]['geometry'])
+        return list(self.inventory[idxs]['tile'])
 
     @_any_geom2ogr_geom
-    @abc.abstractmethod
-    def intersection(self, other, inplace=True, **kwargs):
-        if self.map_type == "array":
-            geoms_intersected, adjacency_map = self._array_intersection(other, **kwargs)
-        else:
-            adjacency_map = None
-            geoms_intersected = self._simple_intersection(other, **kwargs)
+    def intersection(self, other, sref=None, inplace=True, **kwargs):
+        """
+        Intersects a geometry with the raster grid and returns a cropped raster grid.
+        Thereby, each raster geometry gets cropped to.
 
-        raster_grid = RasterGrid(geoms_intersected, adjacency_map=adjacency_map, map_type=self.map_type, parent=self)
+        Parameters
+        ----------
+        other : geospade.definition.RasterGeometry or ogr.Geometry or shapely.geometry or list or tuple
+            Other geometry to intersect with.
+        sref : geospade.spatial_ref.SpatialRef or osr.SpatialReference, optional
+            Spatial reference of the geometry object.
+            Has to be given if the spatial reference cannot be derived from `other` (is used by decorator).
+        inplace : bool
+            If true, the current instance will be modified.
+            If false, a new `RasterGrid` instance will be created.
+        **kwargs
+            Keyword arguments for `RasterGeometry` intersection, i.e. `segment_size` or `snap_to_grid`.
+
+        Returns
+        -------
+        RasterGrid
+            Cropped raster grid with cropped tiles/raster geometries.
+        """
+
+        idxs = self.inventory.intersects(shapely.wkt.loads(other.ExportToWkt()))
+        if all(~idxs):  # no intersection with geometry
+            return None
+        inventory = copy.deepcopy(self.inventory[idxs])
+        intersection = lambda x: x.intersection(other, inplace=False, sref=sref, **kwargs)
+        boundary = lambda x: shapely.wkt.loads(x.boundary.ExportToWkt())
+        inventory['tile'] = inventory['tile'].apply(intersection)
+        inventory['geometry'] = inventory['tile'].apply(boundary)
+
         if inplace:
-            self.adjacency_map = adjacency_map
-            self._geom_ids = None
-            self.geoms = geoms_intersected
+            self.parent = self
+            self.inventory = inventory
             return self
         else:
+            raster_grid = RasterGrid(inventory, parent=self)
             return raster_grid
 
-    def _simple_intersection(self, other, **kwargs):
-        geoms_intersected = []
-        for geom in self.geoms:
-            intersection = geom.intersection(other, inplace=False, **kwargs)
-            if intersection is not None:
-                geoms_intersected.append(intersection)
-                geoms_add = self.neighbours(geom)
-                while len(geoms_add) > 0:
-                    geoms_add_new = []
-                    for geom_add in geoms_add:
-                        intersection = geom_add.intersection(other, inplace=False, **kwargs)
-                        if intersection is None:
-                            continue
-                        else:
-                            geoms_intersected.append(intersection)
-                            geoms_add_new.extend(self.neighbours(geom_add))
-                    geoms_add = geoms_add_new
-                break
-        return geoms_intersected
+    def plot(self, label_tiles=False, **kwargs):
+        """
+        Plots the raster grid on a map, i.e. all of its tiles/raster geometries.
 
-    def _array_intersection(self, other, **kwargs):
+        Parameters
+        ----------
 
-        # create RasterGeometry, which describes the array
-        rows, cols = np.where(~np.isnan(self.adjacency_map))
-        raster_geom_u = self.geoms[min(rows)]
-        raster_geom_l = self.geoms[min(cols)]
-        gt = construct_geotransform((raster_geom_l.ul_x, raster_geom_u.ul_y), self.ori,
-                                    (raster_geom_u.width, raster_geom_u.height), deg=False)
-        array_geom = RasterGeometry(self.adjacency_map.shape[0], self.adjacency_map.shape[1], self.sref,
-                                    gt)
-        # transform the given geometry to the spatial reference of the grid
-        other = other.TransformTo(self.sref)
-        extent = other.GetEnvelope()
-        # extract boundaries and adjacency array
-        ll_r, ll_c = array_geom.xy2rc(extent[0], extent[1])
-        ur_r, ur_c = array_geom.xy2rc(extent[2], extent[3])
-        adjacency_map_roi = self.adjacency_map[ur_r:(ll_r + 1), ll_c:(ur_c + 1)]
-        # get intersected raster geometries
-        raster_geoms_roi = self.geoms[adjacency_map_roi.flatten()]
-        raster_geoms_roi = raster_geoms_roi[~np.isnan(raster_geoms_roi)]
-        # recreate adjacency array
-        adjacency_map_list = list(range(adjacency_map_roi.shape[0]*adjacency_map_roi.shape[1]))
-        adjacency_map = np.array(adjacency_map_list).reshape(adjacency_map_roi.shape)
+        label_tiles : bool, optional
+            If true, the tile ID is plotted at the center of the raster geometry (default is False).
+        **kwargs
+            Keyword arguments for `RasterGeometry` intersection, i.e. `ax`, `color`, `alpha`, `proj` or `show`.
+        """
 
-        return raster_geoms_roi, adjacency_map
+        for i in range(len(self.inventory)):
+            self.inventory['tile'][i].plot(label_geom=label_tiles, **kwargs)
 
+    def __len__(self):
+        """ int : Returns number tiles in the raster grid. """
+        return len(self.inventory)
+
+    def __repr__(self):
+        """ str : String representation of a raster grid as a GeoPandas data frame. """
+        return str(self.inventory)
+
+    #TODO: should indexing by tile id with more than one tile id (i.e. as a list of tile ids) be supported?
     def __getitem__(self, item):
-        if isinstance(item, str):
-            return self._get_raster_geom(item)
+        """
+        Handles indexing of a raster grid, which is herein defined as 2D spatial indexing via x and y coordinates
+        or via a tile ID.
+
+        Parameters
+        ----------
+        item : 2-tuple or str or int
+            Tile ID (e.g., "E048N015T1") or tuple containing coordinate slices (e.g., (10:100,20:200))
+            or coordinate values.
+
+        Returns
+        -------
+        geospade.definition.RasterGrid
+            Raster grid defined by the intersection.
+        """
+
+        if isinstance(item, str) or isinstance(item, int):
+            return self.tile_from_id(item)
         elif isinstance(item, tuple):
             if len(item) != 2:
                 raise ValueError('Index must be a tuple containing the x and y coordinates.')
@@ -1073,7 +1103,7 @@ class RasterGrid(metaclass=abc.ABCMeta):
                     min_y = item[1]
                     max_y = item[1]
 
-                extent = [min_x, min_y, max_x, max_y]
+                extent = [(min_x, min_y), (max_x, max_y)]
                 boundary = bbox_to_polygon(extent, osr_sref=self.sref.osr_sref, segment=segment_size)
 
                 return self.intersection(boundary, segment_size=segment_size, inplace=False)

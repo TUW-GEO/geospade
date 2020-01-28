@@ -396,8 +396,8 @@ def any_geom2ogr_geom(geom, osr_sref=None):
 
     return geom_ogr
 
-
-def xy2ij(x, y, gt):
+# TODO: write detailed tests!
+def xy2ij(x, y, gt, origin="ul"):
     """
     Transforms global/world system coordinates to pixel coordinates/indexes.
 
@@ -418,13 +418,29 @@ def xy2ij(x, y, gt):
         Row number in pixels.
     """
 
-    i = np.floor((-1.0 * (gt[2] * gt[3] - gt[0] * gt[5] + gt[5] * x - gt[2] * y) /
-                  (gt[2] * gt[4] - gt[1] * gt[5])))
-    j = np.floor((-1.0 * (-1 * gt[1] * gt[3] + gt[0] * gt[4] - gt[4] * x + gt[1] * y) /
-                  (gt[2] * gt[4] - gt[1] * gt[5])))
+    px_shift_map = {"ul": (0, 0),
+                    "ur": (1, 0),
+                    "lr": (1, 1),
+                    "ll": (0, 1),
+                    "c": (.5, .5)}
+
+    if origin in px_shift_map.keys():
+        px_shift = px_shift_map[origin]
+    else:
+        wrng_msg = "Pixel origin '{}' unknown. Upper left origin 'ul' will be taken instead".format(origin)
+        warnings.warn(wrng_msg)
+        px_shift = (0, 0)
+
+    x -= px_shift[0]*gt[1]
+    y -= px_shift[1]*gt[5]
+
+    i = np.floor(round((-1.0 * (gt[2] * gt[3] - gt[0] * gt[5] + gt[5] * x - gt[2] * y) /
+                  (gt[2] * gt[4] - gt[1] * gt[5])), DECIMALS))
+    j = np.floor(round((-1.0 * (-1 * gt[1] * gt[3] + gt[0] * gt[4] - gt[4] * x + gt[1] * y) /
+                  (gt[2] * gt[4] - gt[1] * gt[5])), DECIMALS))
     return i, j
 
-
+# TODO: write detailed tests!
 def ij2xy(i, j, gt, origin="ul"):
     """
     Transforms global/world system coordinates to pixel coordinates/indexes.

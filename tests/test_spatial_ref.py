@@ -128,6 +128,5 @@ class TestSpatialref(unittest.TestCase):
 
         assert sref_a != sref_b
 
-
 if __name__ == '__main__':
     unittest.main()

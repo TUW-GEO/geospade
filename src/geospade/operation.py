@@ -12,7 +12,7 @@ from geospade.errors import GeometryUnkown
 from geospade import DECIMALS
 
 
-def rasterise_polygon(points, sres=1., buffer=0.):
+def rasterise_polygon(points, sres=1., buffer=0):
     """
     Rasterises a polygon defined by clockwise list of points with the edge-flag algorithm.
 
@@ -36,7 +36,7 @@ def rasterise_polygon(points, sres=1., buffer=0.):
     The edge-flag algorithm was partly taken from https://de.wikipedia.org/wiki/Rasterung_von_Polygonen
     """
 
-    EPS = 1e-6  # machine epsilon, hard-coded
+    eps = 1**(-DECIMALS)
     buffer = abs(buffer)  # TODO: for the time being only the absolute value is used
     # split tuple points into x and y coordinates (Note: zip does not work with Numba)
     xs, ys = list(zip(*points))
@@ -47,8 +47,8 @@ def rasterise_polygon(points, sres=1., buffer=0.):
     y_max = max(ys)
 
     # number of columns and rows
-    n_rows = round((y_max - y_min)/sres) + 1 + 2*buffer
-    n_cols = round((x_max - x_min)/sres) + 1 + 2*buffer
+    n_rows = int(round((y_max - y_min)/sres) + 1 + 2*buffer)
+    n_cols = int(round((x_max - x_min)/sres) + 1 + 2*buffer)
     # raster with zeros
     raster = np.zeros((n_rows, n_cols), np.uint8)
 
@@ -77,7 +77,7 @@ def rasterise_polygon(points, sres=1., buffer=0.):
             x_start = x_2
             y = y_2
 
-        while abs(y - y_end - sres) >= EPS:  # iterate along polyline
+        while abs(y - y_end - sres) >= eps:  # iterate along polyline
             if k is not None:
                 x = (y - y_start)/k + x_start   # compute x coordinate depending on y coordinate
             else:  # vertical -> x coordinate does not change
@@ -409,6 +409,13 @@ def xy2ij(x, y, gt, origin="ul"):
         World system coordinate in y direction.
     gt : tuple
         Geo-transformation parameters/dictionary.
+    origin : str, optional
+            Defines the world system origin of the pixel. It can be:
+            - upper left ("ul", default)
+            - upper right ("ur")
+            - lower right ("lr")
+            - lower left ("ll")
+            - center ("c")
 
     Returns
     -------
@@ -453,10 +460,10 @@ def ij2xy(i, j, gt, origin="ul"):
         Row number in pixels.
     gt : dict
         Geo-transformation parameters/dictionary.
-    origin: str, optional
-        Defines the world system origin of the pixel. It can be:
-            - upper left ("ul")
-            - upper right ("ur", default)
+    origin : str, optional
+            Defines the world system origin of the pixel. It can be:
+            - upper left ("ul", default)
+            - upper right ("ur")
             - lower right ("lr")
             - lower left ("ll")
             - center ("c")

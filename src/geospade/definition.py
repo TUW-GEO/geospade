@@ -101,6 +101,7 @@ class RasterGeometry:
                  geom_id=None,
                  description=None,
                  segment_size=None,
+                 px_origin="ul",
                  parent=None):
         """
         Constructor of the `RasterGeometry` class.
@@ -122,6 +123,8 @@ class RasterGeometry:
         segment_size : float, optional
             For precision: distance in input units of longest segment of the geometry polygon.
             If None, only the corner points are used for creating the boundary geometry.
+        px_origin : str, optional
+
         parent : RasterGeometry
             Parent `RasterGeometry` instance.
         """
@@ -133,6 +136,7 @@ class RasterGeometry:
         self.description = description
         self.parent = parent
         self._segment_size = segment_size
+        self.px_origin = px_origin
 
         # get internal spatial reference representation from osr object
         if isinstance(sref, osr.SpatialReference):
@@ -170,8 +174,8 @@ class RasterGeometry:
         y_pixel_size : float
             Resolution in y direction.
         **kwargs
-            Keyword arguments for `RasterGeometry` constructor, i.e. `geom_id`, `description`, `segment_size` or
-            `parent`.
+            Keyword arguments for `RasterGeometry` constructor, i.e. `geom_id`, `description`, `segment_size`,
+            `px_origin` or `parent`.
 
         Returns
         -------
@@ -185,8 +189,8 @@ class RasterGeometry:
         ul_x, ul_y = polar_point((ll_x, ll_y), height, np.pi / 2.)
         gt = (ul_x, x_pixel_size, 0, ul_y, 0, y_pixel_size)
         # deal negative pixel sizes, hence the absolute value
-        rows = np.ceil(round(abs(height / y_pixel_size), DECIMALS))
-        cols = np.ceil(round(abs(width / x_pixel_size), DECIMALS))
+        rows = int(np.ceil(round(abs(height / y_pixel_size), DECIMALS)))
+        cols = int(np.ceil(round(abs(width / x_pixel_size), DECIMALS)))
         return cls(rows, cols, sref, gt=gt, **kwargs)
 
     @classmethod
@@ -211,8 +215,8 @@ class RasterGeometry:
             Spatial reference of the geometry object.
             Has to be given if the spatial reference cannot be derived from `geom`.
         **kwargs
-            Keyword arguments for `RasterGeometry` constructor, i.e. `geom_id`, `description`, `segment_size` or
-            `parent`.
+            Keyword arguments for `RasterGeometry` constructor, i.e. `geom_id`, `description`, `segment_size`,
+            `px_origin` or `parent`.
 
         Returns
         -------
@@ -260,8 +264,8 @@ class RasterGeometry:
             # define raster properties
             width = np.hypot(lr_x - ll_x, lr_y - ll_y)
             height = np.hypot(ur_x - lr_x, ur_y - lr_y)
-            rows = np.ceil(round(abs(height / y_pixel_size), DECIMALS))
-            cols = np.ceil(round(abs(width / x_pixel_size), DECIMALS))
+            rows = int(np.ceil(round(abs(height / y_pixel_size), DECIMALS)))
+            cols = int(np.ceil(round(abs(width / x_pixel_size), DECIMALS)))
 
             return RasterGeometry(rows, cols, sref, gt=gt, **kwargs)
         else:
@@ -321,25 +325,25 @@ class RasterGeometry:
     @property
     def ll_x(self):
         """ float : x coordinate of the lower left corner. """
-        x, _ = self.rc2xy(self.rows-1, 0, origin="ll")
+        x, _ = self.rc2xy(self.rows-1, 0, px_origin="ll")
         return x
 
     @property
     def ll_y(self):
         """ float: y coordinate of the lower left corner. """
-        _, y = self.rc2xy(self.rows-1, 0, origin="ll")
+        _, y = self.rc2xy(self.rows-1, 0, px_origin="ll")
         return y
 
     @property
     def ur_x(self):
         """ float : x coordinate of the upper right corner. """
-        x, _ = self.rc2xy(0, self.cols-1, origin="ur")
+        x, _ = self.rc2xy(0, self.cols-1, px_origin="ur")
         return x
 
     @property
     def ur_y(self):
         """ float : y coordinate of the upper right corner. """
-        _, y = self.rc2xy(0, self.cols-1, origin="ur")
+        _, y = self.rc2xy(0, self.cols-1, px_origin="ur")
         return y
 
     @property
@@ -395,14 +399,38 @@ class RasterGeometry:
         4-list of 2-tuples : A tuple containing all corners in the following form (lower left, lower right,
         upper right, upper left).
         """
-        lr_x, lr_y = self.rc2xy(self.rows - 1, self.cols - 1, origin="lr")
-        ul_x, ul_y = self.rc2xy(0, 0, origin="ul")
+        lr_x, lr_y = self.rc2xy(self.rows - 1, self.cols - 1, px_origin="lr")
+        ul_x, ul_y = self.rc2xy(0, 0, px_origin="ul")
         vertices = [(self.ll_x, self.ll_y),
                     (lr_x, lr_y),
                     (self.ur_x, self.ur_y),
                     (ul_x, ul_y),
                     (self.ll_x, self.ll_y)]
         return vertices
+
+    @property
+    def x_coords(self):
+        """ list : Returns all coordinates in x direction. """
+
+        if self.is_axis_parallel:
+            x_min, _ = self.rc2xy(0, 0)
+            x_max, _ = self.rc2xy(0, self.cols-1)
+            return np.arange(x_min, x_max + self.x_pixel_size, self.x_pixel_size).tolist()
+        else:
+            cols = list(range(self.cols))
+            return [self.rc2xy(0, col)[0] for col in cols]
+
+    @property
+    def y_coords(self):
+        """ list : Returns all coordinates in y direction. """
+
+        if self.is_axis_parallel:
+            _, y_min = self.rc2xy(self.rows-1, 0)
+            _, y_max = self.rc2xy(0, 0)
+            return np.arange(y_max, y_min + self.y_pixel_size, self.y_pixel_size).tolist()
+        else:
+            rows = list(range(self.rows))
+            return [self.rc2xy(row, 0)[1] for row in rows]
 
     def to_wkt(self):
         """
@@ -488,9 +516,9 @@ class RasterGeometry:
         intersection = self.boundary.Intersection(other)
         bbox = intersection.GetEnvelope()
         if snap_to_grid:
-            ll_px = self.xy2rc(bbox[0], bbox[2], origin="ll")
-            ur_px = self.xy2rc(bbox[1], bbox[3], origin="ur")
-            bbox = self.rc2xy(*ll_px, origin="ll") + self.rc2xy(*ur_px, origin="ur")
+            ll_px = self.xy2rc(bbox[0], bbox[2], px_origin="ll")
+            ur_px = self.xy2rc(bbox[1], bbox[3], px_origin="ur")
+            bbox = self.rc2xy(*ll_px, px_origin="ll") + self.rc2xy(*ur_px, px_origin="ur")
 
         if segment_size is None:
             segment_size = self._segment_size
@@ -532,7 +560,7 @@ class RasterGeometry:
             bounds = self.extent
         return self.sref.to_cartopy_crs(bounds=bounds)
 
-    def xy2rc(self, x, y, origin="ul"):
+    def xy2rc(self, x, y, px_origin=None):
         """
         Calculates an index of a pixel in which a given point of a world system lies.
 
@@ -542,10 +570,10 @@ class RasterGeometry:
             World system coordinate in x direction.
         y : float
             World system coordinate in y direction.
-        origin : str, optional
+        px_origin : str, optional
             Defines the world system origin of the pixel. It can be:
-            - upper left ("ul")
-            - upper right ("ur", default)
+            - upper left ("ul", default)
+            - upper right ("ur")
             - lower right ("lr")
             - lower left ("ll")
             - center ("c")
@@ -561,10 +589,12 @@ class RasterGeometry:
         -----
         Rounds to the closest, lower integer.
         """
-        c, r = xy2ij(x, y, self.gt, origin=origin)
+
+        px_origin = self.px_origin if px_origin is None else px_origin
+        c, r = xy2ij(x, y, self.gt, origin=px_origin)
         return r, c
 
-    def rc2xy(self, r, c, origin="ul"):
+    def rc2xy(self, r, c, px_origin=None):
         """
         Returns the coordinates of the center or a corner (dependend on ˋoriginˋ) of a pixel specified
         by a row and column number.
@@ -575,10 +605,10 @@ class RasterGeometry:
             Pixel row number.
         c : int
             Pixel column number.
-        origin : str, optional
+        px_origin : str, optional
             Defines the world system origin of the pixel. It can be:
-            - upper left ("ul")
-            - upper right ("ur", default)
+            - upper left ("ul", default)
+            - upper right ("ur")
             - lower right ("lr")
             - lower left ("ll")
             - center ("c")
@@ -591,7 +621,8 @@ class RasterGeometry:
             World system coordinate in y direction.
         """
 
-        return ij2xy(c, r, self.gt, origin=origin)
+        px_origin = self.px_origin if px_origin is None else px_origin
+        return ij2xy(c, r, self.gt, origin=px_origin)
 
     def plot(self, ax=None, facecolor='tab:red', edgecolor='black', alpha=1., proj=None, show=False, label_geom=False):
         """
@@ -762,7 +793,7 @@ class RasterGeometry:
 
         res_raster_geom = RasterGeometry.from_geometry(new_boundary, self.x_pixel_size, self.y_pixel_size, self.sref,
                                                        segment_size=segment_size, description=self.description,
-                                                       geom_id=self.id, parent=self)
+                                                       geom_id=self.id, parent=self, px_origin=self.px_origin)
 
         if inplace:
             self._segment_size = segment_size

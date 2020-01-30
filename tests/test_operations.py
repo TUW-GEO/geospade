@@ -3,7 +3,7 @@ import numpy as np
 from geospade.operation import get_quadrant, rasterise_polygon
 
 
-class OperationsTester(unittest.TestCase):
+class OperationsTest(unittest.TestCase):
 
     def test_get_quadrant(self):
         """
@@ -69,6 +69,4 @@ class OperationsTester(unittest.TestCase):
         assert np.all(raster == ref_raster)
 
 if __name__ == '__main__':
-    tester = OperationsTester()
-    tester.test_rasterise_polygon_buffer()
-    #unittest.main()
+    unittest.main()

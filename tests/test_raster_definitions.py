@@ -12,7 +12,7 @@ from geospade.definition import RasterGeometry
 from geospade.definition import RasterGrid
 
 
-class TestRasterGeometry(unittest.TestCase):
+class RasterGeometryTest(unittest.TestCase):
     """ Tests functionalities of `RasterGeometry`. """
 
     def setUp(self):
@@ -117,6 +117,46 @@ class TestRasterGeometry(unittest.TestCase):
                     (self.extent[0], self.extent[1])]
 
         self.assertListEqual(self.raster_geom.vertices, vertices)
+
+    def test_x_coords(self):
+        """ Tests coordinate retrieval along x dimension. """
+
+        # x coordinate retrieval for axis-parallel raster geometry
+        assert len(self.raster_geom.x_coords) == self.raster_geom.cols
+        assert self.raster_geom.x_coords[-1] == self.raster_geom.rc2xy(0, self.raster_geom.cols-1)[0]
+        assert self.raster_geom.x_coords[0] == self.raster_geom.rc2xy(0, 0)[0]
+        rand_idx = random.randrange(1, self.raster_geom.cols-2, 1)
+        assert self.raster_geom.x_coords[rand_idx] == self.raster_geom.rc2xy(0, rand_idx)[0]
+
+        # x coordinate retrieval for rotated raster geometry (rounding introduced because of machine precision)
+        assert len(self.raster_geom_rot.x_coords) == self.raster_geom_rot.cols
+        assert round(self.raster_geom_rot.x_coords[-1], 1) == \
+               round(self.raster_geom_rot.rc2xy(0, self.raster_geom_rot.cols - 1)[0], 1)
+        assert round(self.raster_geom_rot.x_coords[0], 1) == \
+               round(self.raster_geom_rot.rc2xy(0, 0)[0], 1)
+        rand_idx = random.randrange(1, self.raster_geom_rot.cols - 2, 1)
+        assert round(self.raster_geom_rot.x_coords[rand_idx], 1) == \
+               round(self.raster_geom_rot.rc2xy(0, rand_idx)[0], 1)
+
+    def test_y_coords(self):
+        """ Tests coordinate retrieval along x dimension. """
+
+        # x coordinate retrieval for axis-parallel raster geometry
+        assert len(self.raster_geom.y_coords) == self.raster_geom.rows
+        assert self.raster_geom.y_coords[-1] == self.raster_geom.rc2xy(self.raster_geom.rows-1, 0)[1]
+        assert self.raster_geom.y_coords[0] == self.raster_geom.rc2xy(0, 0)[1]
+        rand_idx = random.randrange(1, self.raster_geom.rows-2, 1)
+        assert self.raster_geom.y_coords[rand_idx] == self.raster_geom.rc2xy(rand_idx, 0)[1]
+
+        # x coordinate retrieval for rotated raster geometry (rounding introduced because of machine precision)
+        assert len(self.raster_geom_rot.y_coords) == self.raster_geom_rot.rows
+        assert round(self.raster_geom_rot.y_coords[-1], 1) == \
+               round(self.raster_geom_rot.rc2xy(self.raster_geom_rot.rows - 1, 0)[1], 1)
+        assert round(self.raster_geom_rot.y_coords[0], 1) == \
+               round(self.raster_geom_rot.rc2xy(0, 0)[1], 1)
+        rand_idx = random.randrange(1, self.raster_geom_rot.rows - 2, 1)
+        assert round(self.raster_geom_rot.y_coords[rand_idx], 1) == \
+               round(self.raster_geom_rot.rc2xy(rand_idx, 0)[1], 1)
 
     def test_intersection(self):
         """ Test intersection with different geometries. """
@@ -308,7 +348,7 @@ class TestRasterGeometry(unittest.TestCase):
 
 
 # TODO: add randomness
-class TestRasterGrid(unittest.TestCase):
+class RasterGridTest(unittest.TestCase):
     """ Tests functionalities of `RasterGrid`. """
 
     def setUp(self):

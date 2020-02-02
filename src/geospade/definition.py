@@ -452,7 +452,7 @@ class RasterGeometry:
         return self.boundary.ExportToWkt()
 
     @_any_geom2ogr_geom
-    def intersects(self, other):
+    def intersects(self, other, sref=None):
         """
         Evaluates if this `RasterGeometry` instance and another geometry intersect.
 
@@ -460,6 +460,9 @@ class RasterGeometry:
         ----------
         other : geospade.definition.RasterGeometry or ogr.Geometry or shapely.geometry or list or tuple
             Other geometry to evaluate an intersection with.
+        sref : geospade.spatial_ref.SpatialRef or osr.SpatialReference, optional
+            Spatial reference of the geometry object.
+            Has to be given if the spatial reference cannot be derived from `other`.
 
         Returns
         -------
@@ -467,10 +470,14 @@ class RasterGeometry:
             True if both geometries intersect, false if not.
         """
 
+        other_sref = other.GetSpatialReference()
+        if not self.sref.osr_sref.IsSame(other_sref):
+            other.TransformTo(self.sref.osr_sref)
+
         return self.boundary.Intersects(other)
 
     @_any_geom2ogr_geom
-    def touches(self, other):
+    def touches(self, other, sref=None):
         """
         Evaluates if this `RasterGeometry` instance and another geometry touch each other.
 
@@ -478,6 +485,9 @@ class RasterGeometry:
         ----------
         other : geospade.definition.RasterGeometry or ogr.Geometry or shapely.geometry or list or tuple
             Other geometry to evaluate a touch operation with.
+        sref : geospade.spatial_ref.SpatialRef or osr.SpatialReference, optional
+            Spatial reference of the geometry object.
+            Has to be given if the spatial reference cannot be derived from `other`.
 
         Returns
         -------
@@ -485,9 +495,36 @@ class RasterGeometry:
             True if both geometries touch each other, false if not.
         """
 
-        touch = self.boundary.Touches(other)
+        other_sref = other.GetSpatialReference()
+        if not self.sref.osr_sref.IsSame(other_sref):
+            other.TransformTo(self.sref.osr_sref)
 
-        return touch
+        return self.boundary.Touches(other)
+
+    @_any_geom2ogr_geom
+    def within(self, other, sref=None):
+        """
+        Evaluates if a geometry is in the raster geometry.
+
+        Parameters
+        ----------
+        other : geospade.definition.RasterGeometry or ogr.Geometry or shapely.geometry or list or tuple
+            Other geometry to evaluate a within operation with.
+        sref : geospade.spatial_ref.SpatialRef or osr.SpatialReference, optional
+            Spatial reference of the geometry object.
+            Has to be given if the spatial reference cannot be derived from `other`.
+
+        Returns
+        -------
+        bool
+            True if the given geometry is within the raster geometry, false if not.
+        """
+
+        other_sref = other.GetSpatialReference()
+        if not self.sref.osr_sref.IsSame(other_sref):
+            other.TransformTo(self.sref.osr_sref)
+
+        return other.Within(self.boundary)
 
     # TODO: add origin
     @_any_geom2ogr_geom
@@ -518,6 +555,11 @@ class RasterGeometry:
         geospade.definition.RasterGeometry
             Raster geometry instance defined by the bounding box of the intersection geometry.
         """
+
+        other_sref = other.GetSpatialReference()
+        if not self.sref.osr_sref.IsSame(other_sref):
+            other.TransformTo(self.sref.osr_sref)
+
         if not self.intersects(other):
             return None
 
@@ -586,8 +628,8 @@ class RasterGeometry:
             - lower left ("ll")
             - center ("c")
         sref : geospade.spatial_ref.SpatialRef or osr.SpatialReference, optional
-            Spatial reference of the geometry object.
-            Has to be given if the spatial reference cannot be derived from `other`.
+            Spatial reference of the coordinates.
+            Has to be given if the spatial reference is different than the raster geometry.
 
         Returns
         -------
@@ -845,7 +887,12 @@ class RasterGeometry:
             True if the given geometry is within the raster geometry, otherwise false.
         """
 
-        return geom.Within(self.boundary)
+        geom_sref = geom.GetSpatialReference()
+        if not self.sref.osr_sref.IsSame(geom_sref):
+            err_msg = "The spatial reference systems are not equal."
+            raise Exception(err_msg)
+
+        return self.within(geom)
 
     def __eq__(self, other):
         """

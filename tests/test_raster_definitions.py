@@ -307,6 +307,10 @@ class RasterGeometryTest(unittest.TestCase):
         assert raster_geom_reszd.rows == self.raster_geom.rows
         assert raster_geom_reszd.cols == (self.raster_geom.cols + 4)
 
+    def test_different_sref(self):
+        """ Test topological operation if the spatial reference systems are different. """
+        pass
+
     def test_equal(self):
         """ Tests if two raster geometries are equal (one created from an extent, one from a geometry). """
 

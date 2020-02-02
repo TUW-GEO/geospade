@@ -318,6 +318,14 @@ class RasterGeometry:
         return cls.from_extent(extent, sref, x_pixel_size, y_pixel_size)
 
     @property
+    def parent_root(self):
+        """ RasterGeometry : Finds and returns the root/original parent `RasterGeometry`. """
+        raster_geom = self
+        while raster_geom.parent is not None:
+            raster_geom = raster_geom.parent
+        return raster_geom
+
+    @property
     def is_axis_parallel(self):
         """ bool : True if the `RasterGeometry` is not rotated , i.e. it is axis-parallel. """
         return self.ori == 0.
@@ -560,7 +568,7 @@ class RasterGeometry:
             bounds = self.extent
         return self.sref.to_cartopy_crs(bounds=bounds)
 
-    def xy2rc(self, x, y, px_origin=None):
+    def xy2rc(self, x, y, px_origin=None, sref=None):
         """
         Calculates an index of a pixel in which a given point of a world system lies.
 
@@ -577,6 +585,9 @@ class RasterGeometry:
             - lower right ("lr")
             - lower left ("ll")
             - center ("c")
+        sref : geospade.spatial_ref.SpatialRef or osr.SpatialReference, optional
+            Spatial reference of the geometry object.
+            Has to be given if the spatial reference cannot be derived from `other`.
 
         Returns
         -------
@@ -591,6 +602,19 @@ class RasterGeometry:
         """
 
         px_origin = self.px_origin if px_origin is None else px_origin
+
+        if sref is not None:
+            if isinstance(sref, osr.SpatialReference):
+                pass
+            elif isinstance(sref, SpatialRef):
+                sref = sref.osr_sref
+            else:
+                err_msg = "Spatial reference must either be an OSR spatial reference or a geospade spatial reference."
+                raise ValueError(err_msg)
+
+            ct = osr.CoordinateTransformation(sref, self.sref.osr_sref)
+            x, y = ct.TransformPoint(x, y)
+
         c, r = xy2ij(x, y, self.gt, origin=px_origin)
         return r, c
 
@@ -923,6 +947,31 @@ class RasterGeometry:
 
             return self.intersection(boundary, segment_size=segment_size, inplace=False)
 
+    def __deepcopy__(self, memodict={}):
+        """
+        Deepcopy method of `RasterGeometry` class.
+
+        Parameters
+        ----------
+        memodict : dict, optional
+
+        Returns
+        -------
+        RasterGeometry
+        """
+
+        rows = self.rows
+        cols = self.cols
+        sref = copy.deepcopy(self.sref)
+        gt = copy.deepcopy(self.gt)
+        geom_id = self.id
+        description = self.description
+        segment_size = self._segment_size
+        px_origin = self.px_origin
+        parent = self.parent
+
+        return RasterGeometry(rows, cols, sref, gt=gt, geom_id=geom_id, description=description,
+                              segment_size=segment_size, px_origin=px_origin, parent=parent)
 
 # TODO: should consistency be checked, maybe optional, property is valid?
 # TODO: what is exactly allowed for a grid (orientation, size of tiles, ...)?

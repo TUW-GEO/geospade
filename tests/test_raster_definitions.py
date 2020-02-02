@@ -82,6 +82,20 @@ class RasterGeometryTest(unittest.TestCase):
         except ValueError:
             assert True
 
+    def test_parent(self):
+        """ Tests accessing of parent `RasterData` objects. """
+
+        raster_geom_scaled = self.raster_geom.scale(0.5, inplace=False)
+        raster_geom_intsct = self.raster_geom.intersection(raster_geom_scaled, inplace=False)
+
+        assert raster_geom_intsct.parent == self.raster_geom
+
+        # tests finding the parent root
+        raster_geom_scaled = raster_geom_scaled.scale(0.5, inplace=False)
+        raster_geom_intsct = raster_geom_intsct.intersection(raster_geom_scaled, inplace=False)
+
+        assert raster_geom_intsct.parent_root == self.raster_geom
+
     def test_is_axis_parallel(self):
         """ Tests if geometries are axis parallel. """
 

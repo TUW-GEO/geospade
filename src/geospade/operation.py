@@ -1,4 +1,5 @@
 import ogr
+import osr
 import cv2
 import math
 import shapely
@@ -8,6 +9,7 @@ from numba import jit
 from copy import deepcopy
 
 from geospade.errors import GeometryUnkown
+from geospade.spatial_ref import SpatialRef
 
 from geospade import DECIMALS
 
@@ -218,7 +220,7 @@ def get_inner_angles(polygon, deg=True):
     """
 
     if isinstance(polygon, ogr.Geometry):
-        polygon = shapely.wkt.loads(polygon.ExportToWKT())
+        polygon = shapely.wkt.loads(polygon.ExportToWkt())
 
     vertices = list(polygon.exterior.coords)
     vertices.append(vertices[1])
@@ -534,3 +536,49 @@ def rel_extent(master_extent, slave_extent, x_pixel_size=1, y_pixel_size=1, unit
     else:
         err_msg = "Unit {} is unknown. Please use 'px' or 'sr'."
         raise Exception(err_msg.format(unit))
+
+
+# TODO: rework this function
+def coordinate_traffo(x, y, this_sref, other_sref):
+    """
+    Transforms coordinates from a source to a target spatial reference system.
+
+    Parameters
+    ----------
+    x : float
+        World system coordinate in x direction with `this_sref` as a spatial reference system.
+    y : float
+        World system coordinate in y direction with `this_sref` as a spatial reference system.
+    this_sref : geospade.spatial_ref.SpatialRef or osr.SpatialReference, optional
+        Spatial reference of the source coordinates.
+    other_sref : geospade.spatial_ref.SpatialRef or osr.SpatialReference, optional
+        Spatial reference of the target coordinates.
+
+    Returns
+    -------
+    x : float
+        World system coordinate in x direction with `other_sref` as a spatial reference system.
+    y : float
+        World system coordinate in y direction with `other_sref` as a spatial reference system.
+    """
+
+    if isinstance(this_sref, osr.SpatialReference):
+        pass
+    elif isinstance(this_sref, SpatialRef):
+        this_sref = this_sref.osr_sref
+    else:
+        err_msg = "Spatial reference must either be an OSR spatial reference or a geospade spatial reference."
+        raise ValueError(err_msg)
+
+    if isinstance(other_sref, osr.SpatialReference):
+        pass
+    elif isinstance(other_sref, SpatialRef):
+        other_sref = other_sref.osr_sref
+    else:
+        err_msg = "Spatial reference must either be an OSR spatial reference or a geospade spatial reference."
+        raise ValueError(err_msg)
+
+    ct = osr.CoordinateTransformation(this_sref, other_sref)
+    x, y = ct.TransformPoint(x, y)
+
+    return x, y

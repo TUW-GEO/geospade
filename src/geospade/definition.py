@@ -25,6 +25,7 @@ from geospade.operation import is_rectangular
 from geospade.operation import xy2ij
 from geospade.operation import ij2xy
 from geospade.operation import bbox_to_polygon
+from geospade.operation import coordinate_traffo
 
 from geospade.spatial_ref import SpatialRef
 from geospade import DECIMALS
@@ -646,16 +647,7 @@ class RasterGeometry:
         px_origin = self.px_origin if px_origin is None else px_origin
 
         if sref is not None:
-            if isinstance(sref, osr.SpatialReference):
-                pass
-            elif isinstance(sref, SpatialRef):
-                sref = sref.osr_sref
-            else:
-                err_msg = "Spatial reference must either be an OSR spatial reference or a geospade spatial reference."
-                raise ValueError(err_msg)
-
-            ct = osr.CoordinateTransformation(sref, self.sref.osr_sref)
-            x, y = ct.TransformPoint(x, y)
+            x, y = coordinate_traffo(x, y, self.sref.osr_sref, sref)
 
         c, r = xy2ij(x, y, self.gt, origin=px_origin)
         return r, c

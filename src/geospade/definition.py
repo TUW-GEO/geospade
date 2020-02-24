@@ -26,6 +26,7 @@ from geospade.operation import xy2ij
 from geospade.operation import ij2xy
 from geospade.operation import bbox_to_polygon
 from geospade.operation import coordinate_traffo
+from geospade.operation import rasterise_polygon
 
 from geospade.spatial_ref import SpatialRef
 from geospade import DECIMALS
@@ -453,6 +454,31 @@ class RasterGeometry:
 
         return self.boundary.ExportToWkt()
 
+    def to_cartopy_crs(self, bounds=None):
+        """
+        Creates a PROJ4Projection object that can be used as an argument of the
+        cartopy `projection` and `transfrom` kwargs. (`PROJ4Projection` is a
+        subclass of a `cartopy.crs.Projection` class)
+
+        Parameters
+        ----------
+        bounds : 4-tuple, optional
+            Boundary of the projection (lower left x, upper right x, lower left y, upper right y).
+            The default behaviour (None) sets the bounds to the extent of the raster geometry.
+
+        Returns
+        -------
+        PROJ4Projection
+            `PROJ4Projection` instance representing the spatial reference of the raster geometry.
+        """
+
+        if bounds is None:
+            bounds = self.extent
+        return self.sref.to_cartopy_crs(bounds=bounds)
+
+    def to_shapely_geom(self):
+        return shapely.wkt.loads(self.boundary.ExportToWkt())
+
     @_any_geom2ogr_geom
     def intersects(self, other, sref=None):
         """
@@ -590,30 +616,57 @@ class RasterGeometry:
         else:
             return intsct_raster_geom
 
-    def to_cartopy_crs(self, bounds=None):
+    # ToDo: test it!
+    @_any_geom2ogr_geom
+    def create_mask(self, other, sref=None, buffer=0):
         """
-        Creates a PROJ4Projection object that can be used as an argument of the
-        cartopy `projection` and `transfrom` kwargs. (`PROJ4Projection` is a
-        subclass of a `cartopy.crs.Projection` class)
+        Creates a mask of which the extent is defined by the raster geometry and the content by the
+        given masking geometry.
 
         Parameters
         ----------
-        bounds : 4-tuple, optional
-            Boundary of the projection (lower left x, upper right x, lower left y, upper right y).
-            The default behaviour (None) sets the bounds to the extent of the raster geometry.
+        other : geospade.definition.RasterGeometry or ogr.Geometry or shapely.geometry or list or tuple
+            Other geometry to intersect with.
+        sref : geospade.spatial_ref.SpatialRef or osr.SpatialReference, optional
+            Spatial reference of the geometry object.
+            Has to be given if the spatial reference cannot be derived from `other`.
+        buffer : int, optional
+            Pixel buffer for crop geometry (default is 0).
 
         Returns
         -------
-        PROJ4Projection
-            `PROJ4Projection` instance representing the spatial reference of the raster geometry.
+        numpy.ndarray
+            2D mask, where the (`other`) geometry pixels are set to 1 and everything outside the geometry is set to 0.
         """
 
-        if bounds is None:
-            bounds = self.extent
-        return self.sref.to_cartopy_crs(bounds=bounds)
+        other_sref = other.GetSpatialReference()
+        if other_sref is not None and not self.sref.osr_sref.IsSame(other_sref):
+            other.TransformTo(self.sref.osr_sref)
 
-    def to_shapely_geom(self):
-        return shapely.wkt.loads(self.boundary.ExportToWkt())
+        mask = np.zeros((self.rows, self.cols))  # default mask
+        # -1 because because extent goes from the ul to the lr pixel corner
+        mask_geom = self.resize([0, 0, -1, -1], unit="px", inplace=False)
+        if mask_geom.intersects(other):
+            # intersect raster geometry with other geometry
+            intersection = mask_geom.boundary.Intersection(other)
+            intersection_coords = list(shapely.wkt.loads(intersection.ExportToWkt()).exterior.coords)
+            # reset the intersection coordinates to center, which are then used by `rasterise_polygon`
+            cntr_coords = [self.rc2xy(*self.xy2rc(intersection_coord[0], intersection_coord[1], px_origin="ul"),
+                                      px_origin="c")
+                           for intersection_coord in intersection_coords]
+            xs_m, ys_m = list(zip(*cntr_coords))
+            mask_min_x = min(xs_m)
+            mask_max_x = max(xs_m)
+            mask_min_y = min(ys_m)
+            mask_max_y = max(ys_m)
+
+            # compute mask boundaries, mask and insert it into global mask
+            min_row, min_col = self.xy2rc(mask_min_x, mask_max_y, px_origin="c")
+            max_row, max_col = self.xy2rc(mask_max_x, mask_min_y, px_origin="c")
+            mask_i = rasterise_polygon(cntr_coords, self.x_pixel_size, buffer=buffer)
+            mask[min_row:(max_row + 1), min_col:(max_col + 1)] = mask_i
+
+        return mask
 
     def xy2rc(self, x, y, px_origin=None, sref=None):
         """
@@ -803,7 +856,7 @@ class RasterGeometry:
             raise Exception(err_msg.format(unit))
 
         # first, convert the geometry to a shapely geometry
-        boundary = shapely.wkt.loads(self.boundary.ExportToWkt())
+        boundary = self.to_shapely_geom()
         # then, rotate the geometry to be axis parallel if it is not axis parallel
         boundary = affinity.rotate(boundary.convex_hull, self.ori*180./np.pi, 'center')
         # loop over all edges
@@ -836,10 +889,10 @@ class RasterGeometry:
         max_x = max(xs)
         max_y = max(ys)
 
-        res_min_x = min_x - self.width * scale_factors[0]
-        res_min_y = min_y - self.height * scale_factors[3]
-        res_max_x = max_x + self.width * scale_factors[2]
-        res_max_y = max_y + self.height * scale_factors[1]
+        res_min_x = round(min_x - self.width * scale_factors[0], DECIMALS)
+        res_min_y = round(min_y - self.height * scale_factors[3], DECIMALS)
+        res_max_x = round(max_x + self.width * scale_factors[2], DECIMALS)
+        res_max_y = round(max_y + self.height * scale_factors[1], DECIMALS)
 
         # create new boundary geometry (counter-clockwise) and rotate it back
         new_boundary = Polygon(((res_min_x, res_min_y),

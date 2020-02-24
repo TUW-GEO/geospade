@@ -25,8 +25,8 @@ def rasterise_polygon(points, sres=1., buffer=0):
         Clockwise list of x and y coordinates defining a polygon.
     sres: float, optional
         Spatial resolution of the raster (default is 1).
-    inner: bool, optional
-        If true, only pixels with their center inside the polygon will be marked as a polygon pixel.
+    buffer : int, optional
+            Pixel buffer for crop geometry (default is 0).
 
     Returns
     -------
@@ -494,12 +494,13 @@ def ij2xy(i, j, gt, origin="ul"):
 
     i += px_shift[0]
     j += px_shift[1]
-    x = gt[0] + i * gt[1] + j * gt[2]
-    y = gt[3] + i * gt[4] + j * gt[5]
+    x = round(gt[0] + i * gt[1] + j * gt[2], DECIMALS)
+    y = round(gt[3] + i * gt[4] + j * gt[5], DECIMALS)
 
     return x, y
 
 
+# ToDo: test this function regarding pixel origin and extent
 def rel_extent(master_extent, slave_extent, x_pixel_size=1, y_pixel_size=1, unit='px', origin='ul'):
     """
     Computes extent in relative pixel or world system coordinates with respect to a second `RasterGeometry` object.
@@ -532,8 +533,10 @@ def rel_extent(master_extent, slave_extent, x_pixel_size=1, y_pixel_size=1, unit
         return rel_extent
     elif unit == 'px':
         # -1 because because extent goes from the ul to the lr pixel corner
-        return (int(round(rel_extent[0] / x_pixel_size)), int(round(rel_extent[1] / y_pixel_size)) - 1,
-                int(round(rel_extent[2] / x_pixel_size)) - 1, int(round(rel_extent[3] / y_pixel_size)))
+        return (int(np.floor(round(rel_extent[0] / x_pixel_size, DECIMALS))),
+                int(np.floor(round(rel_extent[1] / y_pixel_size, DECIMALS))) - 1,
+                int(np.floor(round(rel_extent[2] / x_pixel_size, DECIMALS))) - 1,
+                int(np.floor(round(rel_extent[3] / y_pixel_size, DECIMALS))))
     else:
         err_msg = "Unit {} is unknown. Please use 'px' or 'sr'."
         raise Exception(err_msg.format(unit))

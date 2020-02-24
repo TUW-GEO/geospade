@@ -68,5 +68,6 @@ class OperationsTest(unittest.TestCase):
 
         assert np.all(raster == ref_raster)
 
+
 if __name__ == '__main__':
     unittest.main()

@@ -90,6 +90,7 @@ class SwathGeometry:
         raise NotImplementedError(err_msg)
 
 # TODO: add rotation functionality
+# TODO: make other -> this geometry projection more efficient
 class RasterGeometry:
     """
     Represents the geometry of a georeferenced raster.
@@ -472,7 +473,7 @@ class RasterGeometry:
         """
 
         other_sref = other.GetSpatialReference()
-        if not self.sref.osr_sref.IsSame(other_sref):
+        if other_sref is not None and not self.sref.osr_sref.IsSame(other_sref):
             other.TransformTo(self.sref.osr_sref)
 
         return self.boundary.Intersects(other)
@@ -497,7 +498,7 @@ class RasterGeometry:
         """
 
         other_sref = other.GetSpatialReference()
-        if not self.sref.osr_sref.IsSame(other_sref):
+        if other_sref is not None and not self.sref.osr_sref.IsSame(other_sref):
             other.TransformTo(self.sref.osr_sref)
 
         return self.boundary.Touches(other)
@@ -522,7 +523,7 @@ class RasterGeometry:
         """
 
         other_sref = other.GetSpatialReference()
-        if not self.sref.osr_sref.IsSame(other_sref):
+        if other_sref is not None and not self.sref.osr_sref.IsSame(other_sref):
             other.TransformTo(self.sref.osr_sref)
 
         return other.Within(self.boundary)
@@ -558,7 +559,7 @@ class RasterGeometry:
         """
 
         other_sref = other.GetSpatialReference()
-        if not self.sref.osr_sref.IsSame(other_sref):
+        if other_sref is not None and not self.sref.osr_sref.IsSame(other_sref):
             other.TransformTo(self.sref.osr_sref)
 
         if not self.intersects(other):
@@ -611,6 +612,9 @@ class RasterGeometry:
             bounds = self.extent
         return self.sref.to_cartopy_crs(bounds=bounds)
 
+    def to_shapely_geom(self):
+        return shapely.wkt.loads(self.boundary.ExportToWkt())
+
     def xy2rc(self, x, y, px_origin=None, sref=None):
         """
         Calculates an index of a pixel in which a given point of a world system lies.
@@ -647,7 +651,7 @@ class RasterGeometry:
         px_origin = self.px_origin if px_origin is None else px_origin
 
         if sref is not None:
-            x, y = coordinate_traffo(x, y, self.sref.osr_sref, sref)
+            x, y = coordinate_traffo(x, y, sref, self.sref.osr_sref)
 
         c, r = xy2ij(x, y, self.gt, origin=px_origin)
         return r, c
@@ -724,8 +728,7 @@ class RasterGeometry:
             ax.gridlines()
             ax.coastlines()
 
-        boundary = shapely.wkt.loads(self.boundary.ExportToWkt())
-        patch = PolygonPatch(list(boundary.exterior.coords), facecolor=facecolor, alpha=alpha,
+        patch = PolygonPatch(list(self.to_shapely_geom().exterior.coords), facecolor=facecolor, alpha=alpha,
                              transform=trafo, zorder=0, edgecolor=edgecolor)
         ax.add_patch(patch)
 
@@ -939,7 +942,7 @@ class RasterGeometry:
             Raster geometry instance defined by the bounding box of the intersection geometry.
         """
 
-        return self.intersection(other)
+        return self.intersection(other, inplace=False)
 
     def __repr__(self):
         """ str : String representation of a raster geometry as a Well Known Text (WKT) string. """

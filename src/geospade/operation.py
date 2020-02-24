@@ -38,7 +38,6 @@ def rasterise_polygon(points, sres=1., buffer=0):
     The edge-flag algorithm was partly taken from https://de.wikipedia.org/wiki/Rasterung_von_Polygonen
     """
 
-    eps = 1**(-DECIMALS)
     buffer = abs(buffer)  # TODO: for the time being only the absolute value is used
     # split tuple points into x and y coordinates (Note: zip does not work with Numba)
     xs, ys = list(zip(*points))
@@ -49,8 +48,8 @@ def rasterise_polygon(points, sres=1., buffer=0):
     y_max = max(ys)
 
     # number of columns and rows
-    n_rows = int(round((y_max - y_min)/sres) + 1 + 2*buffer)
-    n_cols = int(round((x_max - x_min)/sres) + 1 + 2*buffer)
+    n_rows = int(np.floor(round((y_max - y_min) / sres, DECIMALS)) + 2 * buffer + 1)
+    n_cols = int(np.floor(round((x_max - x_min) / sres, DECIMALS)) + 2 * buffer + 1)
     # raster with zeros
     raster = np.zeros((n_rows, n_cols), np.uint8)
 
@@ -79,15 +78,15 @@ def rasterise_polygon(points, sres=1., buffer=0):
             x_start = x_2
             y = y_2
 
-        while abs(y - y_end - sres) >= eps:  # iterate along polyline
+        while y <= y_end:  # iterate along polyline
             if k is not None:
                 x = (y - y_start)/k + x_start   # compute x coordinate depending on y coordinate
             else:  # vertical -> x coordinate does not change
                 x = x_start
 
             # compute raster indexes
-            i = round(abs((y - y_max)) / sres) + buffer
-            j = round(abs((x - x_min)) / sres) + buffer
+            i = int(np.floor(abs((y - y_max)) / sres) + buffer)
+            j = int(np.floor(abs((x - x_min)) / sres) + buffer)
             raster[i, j] = 1
             y = y + sres  # increase y in steps of 'sres'
 
@@ -393,6 +392,8 @@ def any_geom2ogr_geom(geom, osr_sref=None):
             geom_ogr.AssignSpatialReference(osr_sref)
     elif isinstance(geom, ogr.Geometry):
         geom_ogr = geom
+        if geom_ogr.GetSpatialReference() is None and osr_sref is not None:
+            geom_ogr.AssignSpatialReference(osr_sref)
     else:
         raise GeometryUnkown(geom)
 
@@ -443,10 +444,10 @@ def xy2ij(x, y, gt, origin="ul"):
     x -= px_shift[0]*gt[1]
     y -= px_shift[1]*gt[5]
 
-    i = np.floor(round((-1.0 * (gt[2] * gt[3] - gt[0] * gt[5] + gt[5] * x - gt[2] * y) /
-                  (gt[2] * gt[4] - gt[1] * gt[5])), DECIMALS))
-    j = np.floor(round((-1.0 * (-1 * gt[1] * gt[3] + gt[0] * gt[4] - gt[4] * x + gt[1] * y) /
-                  (gt[2] * gt[4] - gt[1] * gt[5])), DECIMALS))
+    i = int(np.floor(round((-1.0 * (gt[2] * gt[3] - gt[0] * gt[5] + gt[5] * x - gt[2] * y) /
+                            (gt[2] * gt[4] - gt[1] * gt[5])), DECIMALS)))
+    j = int(np.floor(round((-1.0 * (-1 * gt[1] * gt[3] + gt[0] * gt[4] - gt[4] * x + gt[1] * y) /
+                            (gt[2] * gt[4] - gt[1] * gt[5])), DECIMALS)))
     return i, j
 
 # TODO: write detailed tests!
@@ -524,15 +525,15 @@ def rel_extent(master_extent, slave_extent, x_pixel_size=1, y_pixel_size=1, unit
                        'll': [0, 1]}
 
     origin_idxs = origin_idxs_map[origin]
-    origin_coords = master_extent[origin_idxs]
-    rel_extent = (origin_coords[0] - slave_extent[0],  origin_coords[1] - slave_extent[1],
-                  origin_coords[0] - slave_extent[2], origin_coords[1] - slave_extent[3])
-
+    origin_coords = (master_extent[origin_idxs[0]], master_extent[origin_idxs[1]])
+    rel_extent = (slave_extent[0] - origin_coords[0], slave_extent[1] - origin_coords[1],
+                  slave_extent[2] - origin_coords[0], slave_extent[3] - origin_coords[1])
     if unit == 'sr':
         return rel_extent
     elif unit == 'px':
-        return (int(round(rel_extent[0]/x_pixel_size)), int(round(rel_extent[1]/y_pixel_size)),
-                int(round(rel_extent[2]/x_pixel_size)), int(round(rel_extent[3]/y_pixel_size)))
+        # -1 because because extent goes from the ul to the lr pixel corner
+        return (int(round(rel_extent[0] / x_pixel_size)), int(round(rel_extent[1] / y_pixel_size)) - 1,
+                int(round(rel_extent[2] / x_pixel_size)) - 1, int(round(rel_extent[3] / y_pixel_size)))
     else:
         err_msg = "Unit {} is unknown. Please use 'px' or 'sr'."
         raise Exception(err_msg.format(unit))
@@ -579,6 +580,6 @@ def coordinate_traffo(x, y, this_sref, other_sref):
         raise ValueError(err_msg)
 
     ct = osr.CoordinateTransformation(this_sref, other_sref)
-    x, y = ct.TransformPoint(x, y)
+    x, y, _ = ct.TransformPoint(x, y)
 
     return x, y

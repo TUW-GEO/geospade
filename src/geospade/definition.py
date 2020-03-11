@@ -265,8 +265,8 @@ class RasterGeometry:
             gt = construct_geotransform((ul_x, ul_y), rot, (x_pixel_size, y_pixel_size), deg=False)
 
             # define raster properties
-            width = np.hypot(lr_x - ll_x, lr_y - ll_y)
-            height = np.hypot(ur_x - lr_x, ur_y - lr_y)
+            width = round(np.hypot(lr_x - ll_x, lr_y - ll_y), DECIMALS)
+            height = round(np.hypot(ur_x - lr_x, ur_y - lr_y), DECIMALS)
             rows = int(np.ceil(round(abs(height / y_pixel_size), DECIMALS)))
             cols = int(np.ceil(round(abs(width / x_pixel_size), DECIMALS)))
 
@@ -679,7 +679,7 @@ class RasterGeometry:
             other.TransformTo(self.sref.osr_sref)
 
         mask = np.zeros((self.rows, self.cols))  # default mask
-        # -1 because because extent goes from the ul to the lr pixel corner
+        # -1 because because extent goes from the ul to the lr pixel corner  # ToDo: verify this!
         mask_geom = self.resize([0, 0, -1, -1], unit="px", inplace=False)
         if mask_geom.intersects(other):
             # intersect raster geometry with other geometry

@@ -343,6 +343,18 @@ class RasterGeometry:
         return y
 
     @property
+    def ul_x(self):
+        """ float : x coordinate of the upper left corner. """
+        x, _ = self.rc2xy(0, 0, px_origin=self.px_origin)
+        return x
+
+    @property
+    def ul_y(self):
+        """ float: y coordinate of the upper left corner. """
+        _, y = self.rc2xy(0, 0, px_origin=self.px_origin)
+        return y
+
+    @property
     def ur_x(self):
         """ float : x coordinate of the upper right corner. """
         x, _ = self.rc2xy(0, self.cols-1, px_origin=self.px_origin)
@@ -352,6 +364,18 @@ class RasterGeometry:
     def ur_y(self):
         """ float : y coordinate of the upper right corner. """
         _, y = self.rc2xy(0, self.cols-1, px_origin=self.px_origin)
+        return y
+
+    @property
+    def lr_x(self):
+        """ float : x coordinate of the upper right corner. """
+        x, _ = self.rc2xy(self.rows - 1, self.cols - 1, px_origin=self.px_origin)
+        return x
+
+    @property
+    def lr_y(self):
+        """ float : y coordinate of the upper right corner. """
+        _, y = self.rc2xy(self.rows - 1, self.cols - 1, px_origin=self.px_origin)
         return y
 
     @property
@@ -390,9 +414,8 @@ class RasterGeometry:
     def inner_extent(self):
         """ 4-tuple: Extent of the raster geometry with the pixel origins defined by the class
         (min_x, min_y, max_x, max_y). """
-        lr_x, lr_y = self.rc2xy(self.rows - 1, self.cols - 1, px_origin=self.px_origin)
-        ul_x, ul_y = self.rc2xy(0, 0, px_origin=self.px_origin)
-        return min([self.ll_x, ul_x]), min([self.ll_y, lr_y]), max([self.ur_x, lr_x]), max([self.ur_y, ul_y])
+        return min([self.ll_x, self.ul_x]), min([self.ll_y, self.lr_y]), \
+               max([self.ur_x, self.lr_x]), max([self.ur_y, self.ul_y])
 
     @property
     def outer_extent(self):

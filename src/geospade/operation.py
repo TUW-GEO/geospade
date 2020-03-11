@@ -501,42 +501,41 @@ def ij2xy(i, j, gt, origin="ul"):
 
 
 # ToDo: test this function regarding pixel origin and extent
-def rel_extent(master_extent, slave_extent, x_pixel_size=1, y_pixel_size=1, unit='px', origin='ul'):
+def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px'):
     """
-    Computes extent in relative pixel or world system coordinates with respect to a second `RasterGeometry` object.
+    Computes extent in relative pixel or world system coordinates with respect to an origin/reference point for
+    the upper left corner.
 
     Parameters
     ----------
-    other: RasterGeometry
-        `RasterGeometry` defining the origin.
+    origin : tuple
+        World system coordinates of origin/reference point (X, Y).
+    extent : 4-tuple
+        Extent with the pixel origins defined by `px_origin` (min_x, min_y, max_x, max_y).
     unit: string, optional
         Unit of the relative coordinates.
         Possible values are:
             'px':  Relative coordinates are given as the number of pixels.
             'sr':  Relative coordinates are given as spatial reference units (meters/degrees).
+
     Returns
     -------
     4-tuple of numbers
-        Relative extent of this raster geometry with respect to the other raster geometry ((min_x, min_y, max_x, max_y)).
+        Relative position of the given extent with respect to an origin.
+        The extent values are dependent on the unit:
+            'px' : (min_col, min_row, max_col, max_row)
+            'sr' : (min_x, min_y, max_x, max_y)
     """
 
-    origin_idxs_map = {'ul': [0, 3],
-                       'ur': [2, 3],
-                       'lr': [2, 1],
-                       'll': [0, 1]}
-
-    origin_idxs = origin_idxs_map[origin]
-    origin_coords = (master_extent[origin_idxs[0]], master_extent[origin_idxs[1]])
-    rel_extent = (slave_extent[0] - origin_coords[0], slave_extent[1] - origin_coords[1],
-                  slave_extent[2] - origin_coords[0], slave_extent[3] - origin_coords[1])
+    rel_extent = (extent[0] - origin[0], extent[1] - origin[1], extent[2] - origin[0], extent[3] - origin[1])
     if unit == 'sr':
         return rel_extent
     elif unit == 'px':
-        # always rounded to the lower pixel coordinate (ToDo: should this be changed?)
+        # +1 because you miss one pixel during the difference formation
         return (int(np.floor(round(rel_extent[0] / x_pixel_size, DECIMALS))),
-                int(np.floor(round(rel_extent[1] / y_pixel_size, DECIMALS))),
-                int(np.floor(round(rel_extent[2] / x_pixel_size, DECIMALS))),
-                int(np.floor(round(rel_extent[3] / y_pixel_size, DECIMALS))))
+                int(np.floor(round(rel_extent[3] / y_pixel_size, DECIMALS))),
+                int(np.floor(round(rel_extent[2] / x_pixel_size, DECIMALS))) + 1,
+                int(np.floor(round(rel_extent[1] / y_pixel_size, DECIMALS))) + 1)
     else:
         err_msg = "Unit {} is unknown. Please use 'px' or 'sr'."
         raise Exception(err_msg.format(unit))

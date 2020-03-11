@@ -532,10 +532,10 @@ def rel_extent(master_extent, slave_extent, x_pixel_size=1, y_pixel_size=1, unit
     if unit == 'sr':
         return rel_extent
     elif unit == 'px':
-        # -1 because because extent goes from the ul to the lr pixel corner
+        # always rounded to the lower pixel coordinate (ToDo: should this be changed?)
         return (int(np.floor(round(rel_extent[0] / x_pixel_size, DECIMALS))),
-                int(np.floor(round(rel_extent[1] / y_pixel_size, DECIMALS))) - 1,
-                int(np.floor(round(rel_extent[2] / x_pixel_size, DECIMALS))) - 1,
+                int(np.floor(round(rel_extent[1] / y_pixel_size, DECIMALS))),
+                int(np.floor(round(rel_extent[2] / x_pixel_size, DECIMALS))),
                 int(np.floor(round(rel_extent[3] / y_pixel_size, DECIMALS))))
     else:
         err_msg = "Unit {} is unknown. Please use 'px' or 'sr'."

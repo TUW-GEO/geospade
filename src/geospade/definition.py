@@ -296,10 +296,8 @@ class RasterGeometry:
         x_pixel_size = raster_geoms[0].x_pixel_size
         y_pixel_size = raster_geoms[0].y_pixel_size
 
-        ll_xs = []
-        ll_ys = []
-        ur_xs = []
-        ur_ys = []
+        xs = []
+        ys = []
         for raster_geom in raster_geoms:
 
             if raster_geom.sref != sref:
@@ -311,12 +309,11 @@ class RasterGeometry:
             if raster_geom.y_pixel_size != y_pixel_size:
                 raise ValueError('Geometries have different pixel-sizes in y direction.')
 
-            ll_xs.append(raster_geom.ll_x)
-            ll_ys.append(raster_geom.ll_y)
-            ur_xs.append(raster_geom.ur_x)
-            ur_ys.append(raster_geom.ur_y)
+            min_x, min_y, max_x, max_y = raster_geom.outer_extent
+            xs.extend([min_x, max_x])
+            ys.extend([min_y, max_y])
 
-        extent = (min(ll_xs), min(ll_ys), max(ur_xs), max(ur_ys))
+        extent = (min(xs), min(ys), max(xs), max(ys))
 
         return cls.from_extent(extent, sref, x_pixel_size, y_pixel_size)
 
@@ -336,25 +333,25 @@ class RasterGeometry:
     @property
     def ll_x(self):
         """ float : x coordinate of the lower left corner. """
-        x, _ = self.rc2xy(self.rows-1, 0, px_origin="ll")
+        x, _ = self.rc2xy(self.rows-1, 0, px_origin=self.px_origin)
         return x
 
     @property
     def ll_y(self):
         """ float: y coordinate of the lower left corner. """
-        _, y = self.rc2xy(self.rows-1, 0, px_origin="ll")
+        _, y = self.rc2xy(self.rows-1, 0, px_origin=self.px_origin)
         return y
 
     @property
     def ur_x(self):
         """ float : x coordinate of the upper right corner. """
-        x, _ = self.rc2xy(0, self.cols-1, px_origin="ur")
+        x, _ = self.rc2xy(0, self.cols-1, px_origin=self.px_origin)
         return x
 
     @property
     def ur_y(self):
         """ float : y coordinate of the upper right corner. """
-        _, y = self.rc2xy(0, self.cols-1, px_origin="ur")
+        _, y = self.rc2xy(0, self.cols-1, px_origin=self.px_origin)
         return y
 
     @property
@@ -390,9 +387,22 @@ class RasterGeometry:
         return self.rows * abs(self.y_pixel_size)
 
     @property
-    def extent(self):
-        """ 4-tuple: Extent of the raster geometry (min_x, min_y, max_x, max_y). """
-        return self.ll_x, self.ll_y, self.ur_x, self.ur_y
+    def inner_extent(self):
+        """ 4-tuple: Extent of the raster geometry with the pixel origins defined by the class
+        (min_x, min_y, max_x, max_y). """
+        lr_x, lr_y = self.rc2xy(self.rows - 1, self.cols - 1, px_origin=self.px_origin)
+        ul_x, ul_y = self.rc2xy(0, 0, px_origin=self.px_origin)
+        return min([self.ll_x, ul_x]), min([self.ll_y, lr_y]), max([self.ur_x, lr_x]), max([self.ur_y, ul_y])
+
+    @property
+    def outer_extent(self):
+        """ 4-tuple: Outer extent of the raster geometry containing every pixel
+        (min_x, min_y, max_x, max_y). """
+        ll_x, ll_y = self.rc2xy(self.rows - 1, 0, px_origin="ll")
+        ur_x, ur_y = self.rc2xy(0, self.cols - 1, px_origin="ur")
+        lr_x, lr_y = self.rc2xy(self.rows - 1, self.cols - 1, px_origin="lr")
+        ul_x, ul_y = self.rc2xy(0, 0, px_origin="ul")
+        return min([ll_x, ul_x]), min([ll_y, lr_y]), max([ur_x, lr_x]), max([ur_y, ul_y])
 
     @property
     def area(self):
@@ -407,16 +417,18 @@ class RasterGeometry:
     @property
     def vertices(self):
         """
-        4-list of 2-tuples : A tuple containing all corners in the following form (lower left, lower right,
+        4-list of 2-tuples : A tuple containing all corners (convex hull) in the following form (lower left, lower right,
         upper right, upper left).
         """
+        ll_x, ll_y = self.rc2xy(self.rows - 1, 0, px_origin="ll")
+        ur_x, ur_y = self.rc2xy(0, self.cols - 1, px_origin="ur")
         lr_x, lr_y = self.rc2xy(self.rows - 1, self.cols - 1, px_origin="lr")
         ul_x, ul_y = self.rc2xy(0, 0, px_origin="ul")
-        vertices = [(self.ll_x, self.ll_y),
+        vertices = [(ll_x, ll_y),
                     (lr_x, lr_y),
-                    (self.ur_x, self.ur_y),
+                    (ur_x, ur_y),
                     (ul_x, ul_y),
-                    (self.ll_x, self.ll_y)]
+                    (ll_x, ll_y)]
         return vertices
 
     @property
@@ -473,7 +485,7 @@ class RasterGeometry:
         """
 
         if bounds is None:
-            bounds = self.extent
+            bounds = self.outer_extent
         return self.sref.to_cartopy_crs(bounds=bounds)
 
     def to_shapely_geom(self):
@@ -1116,12 +1128,12 @@ class RasterGrid(metaclass=abc.ABCMeta):
 
     # TODO: should raster geom be a class variable?
     @property
-    def extent(self):
-        """ 4-tuple: Extent of the raster geometry (min_x, min_y, max_x, max_y). """
+    def outer_extent(self):
+        """ 4-tuple: Outer extent of the raster geometry containing all tiles and pixels (min_x, min_y, max_x, max_y). """
 
         raster_geom = RasterGeometry.get_common_geometry(list(self.inventory['tile']))
 
-        return raster_geom.ll_x, raster_geom.ll_y, raster_geom.ur_x, raster_geom.ur_y
+        return raster_geom.outer_extent
 
     def __create_inventory(self, raster_geoms):
         """

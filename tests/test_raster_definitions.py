@@ -71,8 +71,8 @@ class RasterGeometryTest(unittest.TestCase):
 
         # create common raster geometry from the first three raster geometries
         raster_geom = RasterGeometry.get_common_geometry([raster_geom_a, raster_geom_b, raster_geom_c])
-        ll_x, ll_y = raster_geom_b.rc2xy(raster_geom_b.rows - 1, 0, px_origin="ll")
-        ur_x, ur_y = raster_geom_c.rc2xy(0, raster_geom_b.cols - 1, px_origin="ur")
+        ll_x, ll_y = raster_geom_b.rc2xy(raster_geom_b.n_rows - 1, 0, px_origin="ll")
+        ur_x, ur_y = raster_geom_c.rc2xy(0, raster_geom_b.n_cols - 1, px_origin="ur")
         new_extent = (ll_x, ll_y, ur_x, ur_y)
 
         self.assertTupleEqual(raster_geom.outer_extent, new_extent)
@@ -88,13 +88,13 @@ class RasterGeometryTest(unittest.TestCase):
         """ Tests accessing of parent `RasterData` objects. """
 
         raster_geom_scaled = self.raster_geom.scale(0.5, inplace=False)
-        raster_geom_intsct = self.raster_geom.intersection(raster_geom_scaled, inplace=False)
+        raster_geom_intsct = self.raster_geom.intersection_by_geom(raster_geom_scaled, inplace=False)
 
         assert raster_geom_intsct.parent == self.raster_geom
 
         # tests finding the parent root
         raster_geom_scaled = raster_geom_scaled.scale(0.5, inplace=False)
-        raster_geom_intsct = raster_geom_intsct.intersection(raster_geom_scaled, inplace=False)
+        raster_geom_intsct = raster_geom_intsct.intersection_by_geom(raster_geom_scaled, inplace=False)
 
         assert raster_geom_intsct.parent_root == self.raster_geom
 
@@ -138,19 +138,19 @@ class RasterGeometryTest(unittest.TestCase):
         """ Tests coordinate retrieval along x dimension. """
 
         # x coordinate retrieval for axis-parallel raster geometry
-        assert len(self.raster_geom.x_coords) == self.raster_geom.cols
-        assert self.raster_geom.x_coords[-1] == self.raster_geom.rc2xy(0, self.raster_geom.cols-1)[0]
+        assert len(self.raster_geom.x_coords) == self.raster_geom.n_cols
+        assert self.raster_geom.x_coords[-1] == self.raster_geom.rc2xy(0, self.raster_geom.n_cols - 1)[0]
         assert self.raster_geom.x_coords[0] == self.raster_geom.rc2xy(0, 0)[0]
-        rand_idx = random.randrange(1, self.raster_geom.cols-2, 1)
+        rand_idx = random.randrange(1, self.raster_geom.n_cols - 2, 1)
         assert self.raster_geom.x_coords[rand_idx] == self.raster_geom.rc2xy(0, rand_idx)[0]
 
         # x coordinate retrieval for rotated raster geometry (rounding introduced because of machine precision)
-        assert len(self.raster_geom_rot.x_coords) == self.raster_geom_rot.cols
+        assert len(self.raster_geom_rot.x_coords) == self.raster_geom_rot.n_cols
         assert round(self.raster_geom_rot.x_coords[-1], 1) == \
-               round(self.raster_geom_rot.rc2xy(0, self.raster_geom_rot.cols - 1)[0], 1)
+               round(self.raster_geom_rot.rc2xy(0, self.raster_geom_rot.n_cols - 1)[0], 1)
         assert round(self.raster_geom_rot.x_coords[0], 1) == \
                round(self.raster_geom_rot.rc2xy(0, 0)[0], 1)
-        rand_idx = random.randrange(1, self.raster_geom_rot.cols - 2, 1)
+        rand_idx = random.randrange(1, self.raster_geom_rot.n_cols - 2, 1)
         assert round(self.raster_geom_rot.x_coords[rand_idx], 1) == \
                round(self.raster_geom_rot.rc2xy(0, rand_idx)[0], 1)
 
@@ -158,19 +158,19 @@ class RasterGeometryTest(unittest.TestCase):
         """ Tests coordinate retrieval along x dimension. """
 
         # x coordinate retrieval for axis-parallel raster geometry
-        assert len(self.raster_geom.y_coords) == self.raster_geom.rows
-        assert self.raster_geom.y_coords[-1] == self.raster_geom.rc2xy(self.raster_geom.rows-1, 0)[1]
+        assert len(self.raster_geom.y_coords) == self.raster_geom.n_rows
+        assert self.raster_geom.y_coords[-1] == self.raster_geom.rc2xy(self.raster_geom.n_rows - 1, 0)[1]
         assert self.raster_geom.y_coords[0] == self.raster_geom.rc2xy(0, 0)[1]
-        rand_idx = random.randrange(1, self.raster_geom.rows-2, 1)
+        rand_idx = random.randrange(1, self.raster_geom.n_rows - 2, 1)
         assert self.raster_geom.y_coords[rand_idx] == self.raster_geom.rc2xy(rand_idx, 0)[1]
 
         # x coordinate retrieval for rotated raster geometry (rounding introduced because of machine precision)
-        assert len(self.raster_geom_rot.y_coords) == self.raster_geom_rot.rows
+        assert len(self.raster_geom_rot.y_coords) == self.raster_geom_rot.n_rows
         assert round(self.raster_geom_rot.y_coords[-1], 1) == \
-               round(self.raster_geom_rot.rc2xy(self.raster_geom_rot.rows - 1, 0)[1], 1)
+               round(self.raster_geom_rot.rc2xy(self.raster_geom_rot.n_rows - 1, 0)[1], 1)
         assert round(self.raster_geom_rot.y_coords[0], 1) == \
                round(self.raster_geom_rot.rc2xy(0, 0)[1], 1)
-        rand_idx = random.randrange(1, self.raster_geom_rot.rows - 2, 1)
+        rand_idx = random.randrange(1, self.raster_geom_rot.n_rows - 2, 1)
         assert round(self.raster_geom_rot.y_coords[rand_idx], 1) == \
                round(self.raster_geom_rot.rc2xy(rand_idx, 0)[1], 1)
 
@@ -178,12 +178,12 @@ class RasterGeometryTest(unittest.TestCase):
         """ Test intersection with different geometries. """
 
         # test intersection with own geometry
-        raster_geom_intsct = self.raster_geom.intersection(self.raster_geom.boundary, inplace=False)
+        raster_geom_intsct = self.raster_geom.intersection_by_geom(self.raster_geom.boundary, inplace=False)
         assert self.raster_geom == raster_geom_intsct
 
         # test intersection with scaled geometry
         raster_geom_scaled = self.raster_geom.scale(0.5, inplace=False)
-        raster_geom_intsct = self.raster_geom.intersection(raster_geom_scaled, inplace=False)
+        raster_geom_intsct = self.raster_geom.intersection_by_geom(raster_geom_scaled, inplace=False)
 
         assert raster_geom_scaled == raster_geom_intsct
 
@@ -192,7 +192,7 @@ class RasterGeometryTest(unittest.TestCase):
         extent_intsct = (extent_shifted[0], extent_shifted[1], self.extent[2], self.extent[3])
         raster_geom_shifted = RasterGeometry.from_extent(extent_shifted, self.sref,
                                                          self.x_pixel_size, self.y_pixel_size)
-        raster_geom_intsct = self.raster_geom.intersection(raster_geom_shifted, inplace=False)
+        raster_geom_intsct = self.raster_geom.intersection_by_geom(raster_geom_shifted, inplace=False)
 
         assert raster_geom_intsct.outer_extent == extent_intsct
 
@@ -201,7 +201,7 @@ class RasterGeometryTest(unittest.TestCase):
                           self.extent[2] + 5., self.extent[3] + 5.)
         raster_geom_no_ovlp = RasterGeometry.from_extent(extent_no_ovlp, self.sref,
                                                          self.x_pixel_size, self.y_pixel_size)
-        raster_geom_intsct = self.raster_geom.intersection(raster_geom_no_ovlp, inplace=False)
+        raster_geom_intsct = self.raster_geom.intersection_by_geom(raster_geom_no_ovlp, inplace=False)
 
         assert raster_geom_intsct is None
 
@@ -212,11 +212,11 @@ class RasterGeometryTest(unittest.TestCase):
         raster_geom_reszd = self.raster_geom.resize(-abs(self.x_pixel_size)/5., unit='sr', inplace=False)
 
         # execute intersection with 'snap_to_grid=True'
-        raster_geom_intsct = self.raster_geom.intersection(raster_geom_reszd, snap_to_grid=True, inplace=False)
+        raster_geom_intsct = self.raster_geom.intersection_by_geom(raster_geom_reszd, snap_to_grid=True, inplace=False)
         assert raster_geom_intsct == self.raster_geom
 
         # execute intersection with 'snap_to_grid=False'
-        raster_geom_intsct = self.raster_geom.intersection(raster_geom_reszd, snap_to_grid=False, inplace=False)
+        raster_geom_intsct = self.raster_geom.intersection_by_geom(raster_geom_reszd, snap_to_grid=False, inplace=False)
         assert raster_geom_intsct != self.raster_geom
 
     def test_segment_size(self):
@@ -247,8 +247,8 @@ class RasterGeometryTest(unittest.TestCase):
     def test_coord_conversion(self):
         """ Tests bijective coordinate conversion. """
 
-        r_0 = random.randint(0, self.raster_geom.rows)
-        c_0 = random.randint(0, self.raster_geom.cols)
+        r_0 = random.randint(0, self.raster_geom.n_rows)
+        c_0 = random.randint(0, self.raster_geom.n_cols)
 
         x, y = self.raster_geom.rc2xy(r_0, c_0)
         r, c = self.raster_geom.xy2rc(x, y)
@@ -290,8 +290,8 @@ class RasterGeometryTest(unittest.TestCase):
         # tests enlargement in pixels with a rotated geometry
         # TODO: width and height properties change for the rotated geometry -> discuss behaviour with others
         raster_geom_enlrgd = self.raster_geom_rot.scale(2., inplace=False)
-        assert raster_geom_enlrgd.cols == (self.raster_geom_rot.cols * 2)
-        assert raster_geom_enlrgd.rows == (self.raster_geom_rot.rows * 2)
+        assert raster_geom_enlrgd.n_cols == (self.raster_geom_rot.n_cols * 2)
+        assert raster_geom_enlrgd.n_rows == (self.raster_geom_rot.n_rows * 2)
 
     def test_resize(self):
         """ Tests resizing of a raster geometry by pixels and spatial reference units. """
@@ -299,15 +299,15 @@ class RasterGeometryTest(unittest.TestCase):
         # tests resize in pixels
         buffer_sizes = [2, 3, 2, -3]
         raster_geom_reszd = self.raster_geom.resize(buffer_sizes, unit='px', inplace=False)
-        assert raster_geom_reszd.rows == self.raster_geom.rows
-        assert raster_geom_reszd.cols == (self.raster_geom.cols + 4)
+        assert raster_geom_reszd.n_rows == self.raster_geom.n_rows
+        assert raster_geom_reszd.n_cols == (self.raster_geom.n_cols + 4)
 
         # tests resize in spatial reference units
         buffer_sizes = [self.x_pixel_size*2, self.y_pixel_size*3,
                         self.x_pixel_size*2, self.y_pixel_size*-3]
         raster_geom_reszd = self.raster_geom.resize(buffer_sizes, unit='sr', inplace=False)
-        assert raster_geom_reszd.rows == self.raster_geom.rows
-        assert raster_geom_reszd.cols == (self.raster_geom.cols + 4)
+        assert raster_geom_reszd.n_rows == self.raster_geom.n_rows
+        assert raster_geom_reszd.n_cols == (self.raster_geom.n_cols + 4)
 
     def test_different_sref(self):
         """ Test topological operation if the spatial reference systems are different. """
@@ -401,7 +401,7 @@ class RasterGridTest(unittest.TestCase):
                 ul_y = grid_ul_y + grid_row*rows*y_pixel_size
                 gt = (ul_x, x_pixel_size, 0, ul_y, 0, y_pixel_size)
                 tile_id = "S{:02d}W{:02d}".format(grid_row, grid_col)
-                raster_geom = RasterGeometry(rows, cols, sref, gt=gt, geom_id=tile_id)
+                raster_geom = RasterGeometry(rows, cols, sref, geotrans=gt, geom_id=tile_id)
                 raster_geoms.append(raster_geom)
 
         self.raster_grid = RasterGrid(raster_geoms)

@@ -386,6 +386,9 @@ def any_geom2ogr_geom(geom, osr_sref=None):
     elif isinstance(geom, (tuple, list)) and (len(geom) == 2) and (all([isinstance(x, (float, int)) for x in geom])):
         point = shapely.geometry.Point(geom[0], geom[1])
         geom_ogr = any_geom2ogr_geom(point)
+    elif isinstance(geom, (tuple, list)) and (all([isinstance(x, (tuple, list)) and (len(x) == 2) for x in geom])):
+        polygon = shapely.geometry.Polygon(geom)
+        geom_ogr = any_geom2ogr_geom(polygon)
     elif isinstance(geom, (shapely.geometry.Polygon, shapely.geometry.Point)):
         geom_ogr = ogr.CreateGeometryFromWkt(geom.wkt)
         if osr_sref is not None:

@@ -1006,15 +1006,15 @@ class RasterGeometry:
         """
         min_row = max(0, min_row)
         min_col = max(0, min_col)
-        max_row = min(self.n_rows, max_row)
-        max_col = min(self.n_cols, max_col)
-        if min_row >= max_row:
-            err_msg = "Row bounds [{};{}] exceed range of possible row numbers {}."
-            raise ValueError(err_msg.format(min_row, max_row, self.n_rows))
+        max_row = min(self.n_rows-1, max_row)
+        max_col = min(self.n_cols-1, max_col)
+        if min_row > max_row:
+            err_msg = "Row bounds [{};{}] exceed range of possible row indexes {}."
+            raise ValueError(err_msg.format(min_row, max_row, self.n_rows-1))
 
-        if min_col >= max_col:
-            err_msg = "Column bounds [{};{}] exceed range of possible column numbers {}."
-            raise ValueError(err_msg.format(min_col, max_col, self.n_cols))
+        if min_col > max_col:
+            err_msg = "Column bounds [{};{}] exceed range of possible column indexes {}."
+            raise ValueError(err_msg.format(min_col, max_col, self.n_cols-1))
 
         return min_row, min_col, max_row, max_col
 

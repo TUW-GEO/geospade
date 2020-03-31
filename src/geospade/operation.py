@@ -537,8 +537,8 @@ def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px'):
         # +1 because you miss one pixel during the difference formation
         return (int(np.floor(round(rel_extent[0] / x_pixel_size, DECIMALS))),
                 int(np.floor(round(rel_extent[3] / y_pixel_size, DECIMALS))),
-                int(np.floor(round(rel_extent[2] / x_pixel_size, DECIMALS))) + 1,
-                int(np.floor(round(rel_extent[1] / y_pixel_size, DECIMALS))) + 1)
+                int(np.floor(round(rel_extent[2] / x_pixel_size, DECIMALS))),
+                int(np.floor(round(rel_extent[1] / y_pixel_size, DECIMALS))))
     else:
         err_msg = "Unit {} is unknown. Please use 'px' or 'sr'."
         raise Exception(err_msg.format(unit))

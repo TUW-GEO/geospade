@@ -265,8 +265,8 @@ class RasterGeometry:
             geotrans = construct_geotransform((ul_x, ul_y), rot, (x_pixel_size, y_pixel_size), deg=False)
 
             # define raster properties
-            width = round(np.hypot(lr_x - ll_x, lr_y - ll_y), DECIMALS)
-            height = round(np.hypot(ur_x - lr_x, ur_y - lr_y), DECIMALS)
+            width = np.hypot(lr_x - ll_x, lr_y - ll_y)
+            height = np.hypot(ur_x - lr_x, ur_y - lr_y)
             n_rows = int(np.ceil(round(abs(height / y_pixel_size), DECIMALS)))
             n_cols = int(np.ceil(round(abs(width / x_pixel_size), DECIMALS)))
 
@@ -955,10 +955,10 @@ class RasterGeometry:
         max_x = max(x_coords)
         max_y = max(y_coords)
 
-        res_min_x = round(min_x - self.width * scale_factors[0], DECIMALS)
-        res_min_y = round(min_y - self.height * scale_factors[3], DECIMALS)
-        res_max_x = round(max_x + self.width * scale_factors[2], DECIMALS)
-        res_max_y = round(max_y + self.height * scale_factors[1], DECIMALS)
+        res_min_x = min_x - self.width * scale_factors[0]
+        res_min_y = min_y - self.height * scale_factors[3]
+        res_max_x = max_x + self.width * scale_factors[2]
+        res_max_y = max_y + self.height * scale_factors[1]
 
         # create new boundary geometry (counter-clockwise) and rotate it back
         new_boundary_geom = Polygon(((res_min_x, res_min_y),
@@ -1191,15 +1191,19 @@ class RasterGrid(metaclass=abc.ABCMeta):
 
         self.inventory = self.__create_inventory(raster_geoms)
         self.parent = parent
-        self.geom = RasterGeometry.get_common_geometry(self.inventory.values, segment_size=segment_size)
+        self.geom = RasterGeometry.get_common_geometry(self.inventory['tile'], segment_size=segment_size)
 
-        # get spatial reference info from first raster geometry
-        self.sref = self.inventory['tile'][0].sref
-        self.ori = self.inventory['tile'][0].ori
+    @property
+    def geotrans(self):
+        return self.inventory['tile'][0].geotrans
 
-        boundary_ogr = ogr.CreateGeometryFromWkt(cascaded_union(self.inventory['geometry']).wkt)
-        boundary_ogr.AssignSpatialReference(self.sref.osr_sref)
+    @property
+    def sref(self):
+        return self.inventory['tile'][0].sref
 
+    @property
+    def orientation(self):
+        return self.inventory['tile'][0].ori
 
     @property
     def tile_ids(self):

@@ -429,10 +429,10 @@ class RasterGridTest(unittest.TestCase):
 
         self.assertListEqual(neighbours_id, neighbours_id_should)
 
-    def test_intersection(self):
+    def test_intersection_by_geom(self):
         """ Tests intersection of a geometry with the raster grid. """
 
-        raster_grid_intsct = self.raster_grid.intersection(self.roi, inplace=False)
+        raster_grid_intsct = self.raster_grid.intersection_by_geom(self.roi, inplace=False)
         assert raster_grid_intsct.tile_ids == ["S00W00", "S00W01", "S01W00", "S01W01"]
         assert raster_grid_intsct.area == self.raster_grid["S00W00"].area
 

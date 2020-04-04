@@ -11,4 +11,4 @@ finally:
     del get_distribution, DistributionNotFound
 
 # declare global variables
-DECIMALS = 9
+DECIMALS = 9  # TODO: how should this be declared?

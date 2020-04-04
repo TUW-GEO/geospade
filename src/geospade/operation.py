@@ -497,8 +497,8 @@ def ij2xy(i, j, gt, origin="ul"):
 
     i += px_shift[0]
     j += px_shift[1]
-    x = round(gt[0] + i * gt[1] + j * gt[2], DECIMALS)
-    y = round(gt[3] + i * gt[4] + j * gt[5], DECIMALS)
+    x = gt[0] + i * gt[1] + j * gt[2]
+    y = gt[3] + i * gt[4] + j * gt[5]
 
     return x, y
 

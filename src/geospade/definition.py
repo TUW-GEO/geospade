@@ -4,6 +4,7 @@ import sys
 import osr
 import ogr
 import copy
+import warnings
 import shapely
 import shapely.wkt
 from shapely import affinity
@@ -276,7 +277,7 @@ class RasterGeometry:
             return cls.from_extent(bbox, sref, x_pixel_size, y_pixel_size, **kwargs)
 
     @classmethod
-    def get_common_geometry(cls, raster_geoms):
+    def get_common_geometry(cls, raster_geoms, **kwargs):
         """
         Creates a raster geometry, which contains all the given raster geometries given by ˋraster_geomsˋ.
 
@@ -314,7 +315,7 @@ class RasterGeometry:
 
         extent = (min(x_coords), min(y_coords), max(x_coords), max(y_coords))
 
-        return cls.from_extent(extent, sref, x_pixel_size, y_pixel_size)
+        return cls.from_extent(extent, sref, x_pixel_size, y_pixel_size, **kwargs)
 
     @property
     def parent_root(self):
@@ -1190,6 +1191,7 @@ class RasterGrid(metaclass=abc.ABCMeta):
 
         self.inventory = self.__create_inventory(raster_geoms)
         self.parent = parent
+        self.geom = RasterGeometry.get_common_geometry(self.inventory.values, segment_size=segment_size)
 
         # get spatial reference info from first raster geometry
         self.sref = self.inventory['tile'][0].sref
@@ -1198,10 +1200,6 @@ class RasterGrid(metaclass=abc.ABCMeta):
         boundary_ogr = ogr.CreateGeometryFromWkt(cascaded_union(self.inventory['geometry']).wkt)
         boundary_ogr.AssignSpatialReference(self.sref.osr_sref)
 
-        if segment_size is not None:
-            self.boundary = segmentize_geometry(boundary_ogr, segment=segment_size)
-        else:
-            self.boundary = boundary_ogr
 
     @property
     def tile_ids(self):
@@ -1271,7 +1269,7 @@ class RasterGrid(metaclass=abc.ABCMeta):
         return list(self.inventory[idxs]['tile'])
 
     @_any_geom2ogr_geom
-    def intersection(self, other, sref=None, inplace=True, **kwargs):
+    def intersection_by_coords(self, x, y, sref=None, inplace=True, **kwargs):
         """
         Intersects a geometry with the raster grid and returns a cropped raster grid.
         Thereby, each raster geometry gets cropped to.
@@ -1295,9 +1293,77 @@ class RasterGrid(metaclass=abc.ABCMeta):
             Cropped raster grid with cropped tiles/raster geometries.
         """
 
-        idxs = self.inventory.intersects(shapely.wkt.loads(other.ExportToWkt()))
-        if all(~idxs):  # no intersection with geometry
+        poi = ogr.Geometry(ogr.wkbPoint)
+        poi.AddPoint(x, y)
+
+        return self.intersection_by_geom(poi, sref=sref, inplace=inplace, **kwargs)
+
+    @_any_geom2ogr_geom
+    def intersection_by_pixels(self, row, col, n_rows=1, n_cols=1, inplace=False, **kwargs):
+        """
+        Intersects a geometry with the raster grid and returns a cropped raster grid.
+        Thereby, each raster geometry gets cropped to.
+
+        Parameters
+        ----------
+        other : geospade.definition.RasterGeometry or ogr.Geometry or shapely.geometry or list or tuple
+            Other geometry to intersect with.
+        sref : geospade.spatial_ref.SpatialRef or osr.SpatialReference, optional
+            Spatial reference of the geometry object.
+            Has to be given if the spatial reference cannot be derived from `other` (is used by decorator).
+        inplace : bool
+            If true, the current instance will be modified.
+            If false, a new `RasterGrid` instance will be created.
+        **kwargs
+            Keyword arguments for `RasterGeometry` intersection, i.e. `segment_size` or `snap_to_grid`.
+
+        Returns
+        -------
+        RasterGrid
+            Cropped raster grid with cropped tiles/raster geometries.
+        """
+
+        px_extent = (row, col, row + n_rows, col + n_cols)
+        min_row, min_col, max_row, max_col = self.geom.crop_px_extent(*px_extent)
+        ul_coords = self.geom.rc2xy(min_row, min_col, px_origin="ul")
+        ur_coords = self.geom.rc2xy(min_row, max_col, px_origin="ur")
+        lr_coords = self.geom.rc2xy(max_row, max_col, px_origin="lr")
+        ll_coords = self.geom.rc2xy(max_row, min_col, px_origin="ll")
+        coords = [ul_coords, ur_coords, lr_coords, ll_coords, ul_coords]
+
+        return self.intersection_by_geom(coords, sref=self.sref, inplace=inplace, **kwargs)
+
+    @_any_geom2ogr_geom
+    def intersection_by_geom(self, other, sref=None, inplace=False, **kwargs):
+        """
+        Intersects a geometry with the raster grid and returns a cropped raster grid.
+        Thereby, each raster geometry gets cropped to.
+
+        Parameters
+        ----------
+        other : geospade.definition.RasterGeometry or ogr.Geometry or shapely.geometry or list or tuple
+            Other geometry to intersect with.
+        sref : geospade.spatial_ref.SpatialRef or osr.SpatialReference, optional
+            Spatial reference of the geometry object.
+            Has to be given if the spatial reference cannot be derived from `other` (is used by decorator).
+        inplace : bool
+            If true, the current instance will be modified.
+            If false, a new `RasterGrid` instance will be created.
+        **kwargs
+            Keyword arguments for `RasterGeometry` intersection, i.e. `segment_size` or `snap_to_grid`.
+
+        Returns
+        -------
+        RasterGrid
+            Cropped raster grid with cropped tiles/raster geometries.
+        """
+
+        if not self.geom.intersects(other):
+            wrn_msg = "Geometry does not intersect with raster grid."
+            warnings.warn(wrn_msg)
             return None
+
+        idxs = self.inventory.intersects(shapely.wkt.loads(other.ExportToWkt()))
         inventory = copy.deepcopy(self.inventory[idxs])
         intersection = lambda x: x.intersection_by_geom(other, inplace=False, sref=sref, **kwargs)
         boundary = lambda x: shapely.wkt.loads(x.boundary.ExportToWkt())
@@ -1305,8 +1371,10 @@ class RasterGrid(metaclass=abc.ABCMeta):
         inventory['geometry'] = inventory['tile'].apply(boundary)
 
         if inplace:
+            geom = self.geom.intersection_by_geom(other, sref=sref, **kwargs)
             self.parent = self
             self.inventory = inventory
+            self.geom = geom
             return self
         else:
             raster_grid = RasterGrid(inventory, parent=self)
@@ -1378,9 +1446,8 @@ class RasterGrid(metaclass=abc.ABCMeta):
                     max_y = item[1]
 
                 extent = [(min_x, min_y), (max_x, max_y)]
-                boundary = bbox_to_polygon(extent, osr_sref=self.sref.osr_sref, segment=segment_size)
 
-                return self.intersection(boundary, segment_size=segment_size, inplace=False)
+                return self.intersection_by_geom(extent, segment_size=segment_size, inplace=False)
         else:
             err_msg = "Key is only allowed to be of type str or tuple."
             KeyError(err_msg)

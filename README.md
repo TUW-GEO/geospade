@@ -1,4 +1,4 @@
-<img align="right" src="https://github.com/TUW-GEO/geospade/raw/master/docs/imgs/geospade_logo.png" height="300" width="435">
+<img align="right" src="https://github.com/TUW-GEO/geospade/raw/master/docs/imgs/geospade_logo.png" height="400" width="400">
 
 # geospade
 [![Build Status](https://travis-ci.com/TUW-GEO/geospade.svg?branch=master)](https://travis-ci.org/TUW-GEO/geospade)

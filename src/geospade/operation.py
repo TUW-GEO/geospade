@@ -14,6 +14,7 @@ from geospade.spatial_ref import SpatialRef
 from geospade import DECIMALS
 
 
+# ´TODO: refactor rounding
 def rasterise_polygon(points, sres=1., buffer=0):
     """
     Rasterises a polygon defined by clockwise list of points with the edge-flag algorithm.
@@ -47,9 +48,16 @@ def rasterise_polygon(points, sres=1., buffer=0):
     y_min = min(ys)
     y_max = max(ys)
 
+    # readjust extent to sres
+    x_min = int(round(x_min / sres, DECIMALS)) * sres
+    y_min = int(round(y_min / sres, DECIMALS)) * sres
+    x_max = int(round(x_max / sres, DECIMALS)) * sres
+    y_max = int(round(y_max / sres, DECIMALS)) * sres
+
     # number of columns and rows
-    n_rows = int(np.floor(round((y_max - y_min) / sres, DECIMALS)) + 2 * buffer + 1)
-    n_cols = int(np.floor(round((x_max - x_min) / sres, DECIMALS)) + 2 * buffer + 1)
+    n_rows = int(round((y_max - y_min) / sres, DECIMALS) + 2 * buffer) + 1  # +1 to include start and end coordinate
+    n_cols = int(round((x_max - x_min) / sres, DECIMALS) + 2 * buffer) + 1  # +1 to include start and end coordinate
+
     # raster with zeros
     raster = np.zeros((n_rows, n_cols), np.uint8)
 
@@ -85,16 +93,17 @@ def rasterise_polygon(points, sres=1., buffer=0):
                 x = x_start
 
             # compute raster indexes
-            i = int(np.floor(abs((y - y_max)) / sres) + buffer)
-            j = int(np.floor(abs((x - x_min)) / sres) + buffer)
+            i = int(np.floor(round((abs((y - y_max)) / sres), DECIMALS) + buffer))
+            j = int(np.floor(round((abs((x - x_min)) / sres), DECIMALS) + buffer))
             raster[i, j] = 1
-            y = y + sres  # increase y in steps of 'sres'
+            y = round(y + sres, DECIMALS)  # increase y in steps of 'sres'
 
     # loop over rows and fill raster from left to right
     for i in range(n_rows):
         is_inner = False
         if sum(raster[i, :]) < 2:  # if there is only one contour point in a line (e.g. spike of a polygon), continue
             continue
+
         for j in range(n_cols):
             if raster[i, j]:
                 is_inner = ~is_inner

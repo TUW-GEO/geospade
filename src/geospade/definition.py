@@ -11,6 +11,7 @@ from shapely import affinity
 
 import numpy as np
 import geopandas as geopd
+import cartopy
 import cartopy.crs as ccrs
 
 from shapely.geometry import Polygon
@@ -156,7 +157,7 @@ class RasterGeometry:
         if segment_size is not None:
             self.boundary = segmentize_geometry(boundary_ogr, segment=segment_size)
         else:
-            self.boundary = boundary_ogr
+            self.boundary = boundary_ogr  #ToDo: only use this
 
     @classmethod
     def from_extent(cls, extent, sref, x_pixel_size, y_pixel_size, **kwargs):
@@ -226,6 +227,9 @@ class RasterGeometry:
         RasterGeometry
         """
 
+        if sref is None:
+            sref = SpatialRef.from_osr(geom.GetSpatialReference())
+
         geom = shapely.wkt.loads(geom.ExportToWkt())
         geom_ch = geom.convex_hull
 
@@ -277,7 +281,7 @@ class RasterGeometry:
             return cls.from_extent(bbox, sref, x_pixel_size, y_pixel_size, **kwargs)
 
     @classmethod
-    def get_common_geometry(cls, raster_geoms, **kwargs):
+    def from_raster_geometries(cls, raster_geoms, **kwargs):
         """
         Creates a raster geometry, which contains all the given raster geometries given by ˋraster_geomsˋ.
 
@@ -309,7 +313,7 @@ class RasterGeometry:
             if raster_geom.y_pixel_size != y_pixel_size:
                 raise ValueError('Geometries have different pixel-sizes in y direction.')
 
-            min_x, min_y, max_x, max_y = raster_geom.outer_extent
+            min_x, min_y, max_x, max_y = raster_geom.extent
             x_coords.extend([min_x, max_x])
             y_coords.extend([min_y, max_y])
 
@@ -318,7 +322,7 @@ class RasterGeometry:
         return cls.from_extent(extent, sref, x_pixel_size, y_pixel_size, **kwargs)
 
     @property
-    def parent_root(self):
+    def parent_root(self): # ToDo: revise in veranda
         """ RasterGeometry : Finds and returns the root/original parent `RasterGeometry`. """
         raster_geom = self
         while raster_geom.parent is not None:
@@ -418,7 +422,7 @@ class RasterGeometry:
                max([self.ur_x, self.lr_x]), max([self.ur_y, self.ul_y])
 
     @property
-    def outer_extent(self):
+    def extent(self):  # TODO: search for common method usage
         """ 4-tuple: Outer extent of the raster geometry containing every pixel
         (min_x, min_y, max_x, max_y). """
         ll_x, ll_y = self.rc2xy(self.n_rows - 1, 0, px_origin="ll")
@@ -428,7 +432,7 @@ class RasterGeometry:
         return min([ll_x, ul_x]), min([ll_y, lr_y]), max([ur_x, lr_x]), max([ur_y, ul_y])
 
     @property
-    def area(self):
+    def area(self):  # TODO: check rasterio
         """ float : Area covered by the raster geometry. """
         return self.width * self.height
 
@@ -457,28 +461,39 @@ class RasterGeometry:
     @property
     def x_coords(self):
         """ list : Returns all coordinates in x direction. """
-
+        # TODO: return np.array
         if self.is_axis_parallel:
             min_x, _ = self.rc2xy(0, 0)
             max_x, _ = self.rc2xy(0, self.n_cols - 1)
             return np.arange(min_x, max_x + self.x_pixel_size, self.x_pixel_size).tolist()
         else:
             cols = list(range(self.n_cols))
-            return [self.rc2xy(0, col)[0] for col in cols]
+            return [self.rc2xy(0, col)[0] for col in cols]  #TODO: array
 
     @property
     def y_coords(self):
         """ list : Returns all coordinates in y direction. """
-
+        # TODO: return np.array
         if self.is_axis_parallel:
             _, min_y = self.rc2xy(self.n_rows - 1, 0)
             _, max_y = self.rc2xy(0, 0)
             return np.arange(max_y, min_y + self.y_pixel_size, self.y_pixel_size).tolist()
         else:
             rows = list(range(self.n_rows))
-            return [self.rc2xy(row, 0)[1] for row in rows]
+            return [self.rc2xy(row, 0)[1] for row in rows] #TODO: array
 
-    def to_wkt(self):
+    def boundary_as_ogr(self):
+        """
+        Returns Well Known Text (WKT) representation of the boundary of a `RasterGeometry`.
+
+        Returns
+        -------
+        str
+        """
+
+        return self.boundary
+
+    def boundary_as_wkt(self):
         """
         Returns Well Known Text (WKT) representation of the boundary of a `RasterGeometry`.
 
@@ -488,6 +503,10 @@ class RasterGeometry:
         """
 
         return self.boundary.ExportToWkt()
+
+    def boundary_as_shapely(self):
+        """  shapely.geometry.Polygon : Boundary of the raster geometry represented as a Shapely polygon. """
+        return shapely.wkt.loads(self.boundary.ExportToWkt())
 
     def to_cartopy_crs(self, bounds=None):
         """
@@ -508,14 +527,11 @@ class RasterGeometry:
         """
 
         if bounds is None:
-            bounds = self.outer_extent
-        return self.sref.to_cartopy_crs(bounds=bounds)
+            ll_x, ll_y, ur_x, ur_y = self.extent
+            bounds = ll_x, ur_x, ll_y, ur_y
+        return self.sref.to_cartopy_crs(bounds)
 
-    def to_shapely_geom(self):
-        """  shapely.geometry.Polygon : Boundary of the raster geometry represented as a Shapely polygon. """
-        return shapely.wkt.loads(self.boundary.ExportToWkt())
-
-    @_any_geom2ogr_geom
+    @_any_geom2ogr_geom  # TODO: remove tuple etc. and always expect geometry
     def intersects(self, other, sref=None):
         """
         Evaluates if this `RasterGeometry` instance and another geometry intersect.
@@ -533,7 +549,6 @@ class RasterGeometry:
         bool
             True if both geometries intersect, false if not.
         """
-
         other_sref = other.GetSpatialReference()
         if other_sref is not None and not self.sref.osr_sref.IsSame(other_sref):
             other.TransformTo(self.sref.osr_sref)
@@ -592,7 +607,7 @@ class RasterGeometry:
 
     # TODO: add origin
     @_any_geom2ogr_geom
-    def intersection_by_geom(self, other, sref=None, snap_to_grid=True, segment_size=None, inplace=True):
+    def intersection_by_geom(self, other, sref=None, snap_to_grid=True, segment_size=None, inplace=False):
         """
         Computes an intersection figure of two geometries and returns its
         (grid axes-parallel rectangle) bounding box.
@@ -671,6 +686,7 @@ class RasterGeometry:
             Raster geometry instance defined by the pixel extent.
         """
         min_row, min_col, max_row, max_col = self.crop_px_extent(*px_extent)
+        # TODO: create a raster geometry
         ul_coords = self.rc2xy(min_row, min_col, px_origin="ul")
         ur_coords = self.rc2xy(min_row, max_col, px_origin="ur")
         lr_coords = self.rc2xy(max_row, max_col, px_origin="lr")
@@ -680,6 +696,7 @@ class RasterGeometry:
         return self.intersection_by_geom(coords, sref=self.sref, inplace=inplace)
 
     # ToDo: needs to be tested!
+    # TODO: move to veranda
     @_any_geom2ogr_geom
     def create_mask(self, other, sref=None, buffer=0):
         """
@@ -805,7 +822,8 @@ class RasterGeometry:
         px_origin = self.px_origin if px_origin is None else px_origin
         return ij2xy(c, r, self.geotrans, origin=px_origin)
 
-    def plot(self, ax=None, facecolor='tab:red', edgecolor='black', alpha=1., proj=None, show=False, label_geom=False):
+    def plot(self, ax=None, facecolor='tab:red', edgecolor='black', edgewidth=1, alpha=1., proj=None,
+             show=False, label_geom=False, add_country_borders=True, extent=None):
         """
         Plots the boundary of the raster geometry on a map.
 
@@ -838,18 +856,25 @@ class RasterGeometry:
             err_msg = "Module 'matplotlib' is mandatory for plotting a RasterGeometry object."
             raise ImportError(err_msg)
 
-        trafo = self.to_cartopy_crs()
         if ax is None:
             if proj is None:
-                proj = ccrs.Mollweide()
+                proj = self.to_cartopy_crs()  # TODO: does not work yet
+
             ax = plt.axes(projection=proj)
             ax.set_global()
             ax.gridlines()
-            ax.coastlines()
 
-        patch = PolygonPatch(list(self.to_shapely_geom().exterior.coords), facecolor=facecolor, alpha=alpha,
-                             transform=trafo, zorder=0, edgecolor=edgecolor)
+        if add_country_borders:
+            ax.coastlines()
+            ax.add_feature(cartopy.feature.BORDERS)
+
+        patch = PolygonPatch(list(self.boundary_as_shapely().exterior.coords), facecolor=facecolor, alpha=alpha,
+                             transform=proj, zorder=0, edgecolor=edgecolor, linewidth=edgewidth)
         ax.add_patch(patch)
+
+        if extent is not None:
+            ax.set_xlim(extent[:2])
+            ax.set_ylim(extent[2:])
 
         if self.id is not None and label_geom:
             transform = proj._as_mpl_transform(ax)
@@ -860,7 +885,7 @@ class RasterGeometry:
 
         return ax
 
-    def scale(self, scale_factor, segment_size=None, inplace=True):
+    def scale(self, scale_factor, segment_size=None, inplace=False):
         """
         Scales the raster geometry as a whole or for each edge.
 
@@ -884,7 +909,7 @@ class RasterGeometry:
 
         return self.resize(scale_factor, unit='', segment_size=segment_size, inplace=inplace)
 
-    def resize(self, buffer_size, unit='px', segment_size=None, inplace=True):
+    def resize(self, buffer_size, unit='px', segment_size=None, inplace=False):
         """
         Resizes the raster geometry. The value can be specified in
         percent, pixels, or spatial reference units. A positive value extends, a
@@ -922,7 +947,7 @@ class RasterGeometry:
             raise Exception(err_msg.format(unit))
 
         # first, convert the geometry to a shapely geometry
-        boundary = self.to_shapely_geom()
+        boundary = self.boundary_as_shapely()
         # then, rotate the geometry to be axis parallel if it is not axis parallel
         boundary = affinity.rotate(boundary.convex_hull, self.ori*180./np.pi, 'center')
         # loop over all edges
@@ -985,7 +1010,7 @@ class RasterGeometry:
         else:
             return res_raster_geom
 
-    def crop_px_extent(self, min_row, min_col, max_row, max_col):
+    def crop_px_extent(self, min_row=0, min_col=0, max_row=None, max_col=None):  # TODO: rename (clip_pixel_exten)
         """
         Crops a given pixel extent (min_row, min_col, max_row, max_col) to the pixel limits of the raster geometry.
 
@@ -1005,10 +1030,11 @@ class RasterGeometry:
         min_row, min_col, max_row, max_col : int, int, int, int
             Cropped pixel extent.
         """
+        max_row = max_row if max_row is not None else self.n_rows-1 # :(
         min_row = max(0, min_row)
         min_col = max(0, min_col)
-        max_row = min(self.n_rows-1, max_row)
-        max_col = min(self.n_cols-1, max_col)
+        max_row = min(self.n_rows-1, max_row)  # -1 because of Python indexing
+        max_col = min(self.n_cols-1, max_col)  # -1 because of Python indexing
         if min_row > max_row:
             err_msg = "Row bounds [{};{}] exceed range of possible row indexes {}."
             raise ValueError(err_msg.format(min_row, max_row, self.n_rows-1))
@@ -1100,7 +1126,7 @@ class RasterGeometry:
     def __repr__(self):
         """ str : String representation of a raster geometry as a Well Known Text (WKT) string. """
 
-        return self.to_wkt()
+        return self.boundary_as_wkt()
 
     def __getitem__(self, item):
         """
@@ -1191,7 +1217,7 @@ class RasterGrid(metaclass=abc.ABCMeta):
 
         self.inventory = self.__create_inventory(raster_geoms)
         self.parent = parent
-        self.geom = RasterGeometry.get_common_geometry(self.inventory['tile'], segment_size=segment_size)
+        self.geom = RasterGeometry.from_raster_geometries(self.inventory['tile'], segment_size=segment_size)
 
     @property
     def geotrans(self):
@@ -1220,9 +1246,9 @@ class RasterGrid(metaclass=abc.ABCMeta):
     def outer_extent(self):
         """ 4-tuple: Outer extent of the raster geometry containing all tiles and pixels (min_x, min_y, max_x, max_y). """
 
-        raster_geom = RasterGeometry.get_common_geometry(list(self.inventory['tile']))
+        raster_geom = RasterGeometry.from_raster_geometries(list(self.inventory['tile']))
 
-        return raster_geom.outer_extent
+        return raster_geom.extent
 
     def __create_inventory(self, raster_geoms):
         """
@@ -1252,7 +1278,7 @@ class RasterGrid(metaclass=abc.ABCMeta):
             raise ValueError(err_msg.format(type(raster_geoms)))
 
         if not isinstance(raster_geoms, geopd.GeoDataFrame):
-            boundaries = [shapely.wkt.loads(raster_geom.to_wkt()) for raster_geom in raster_geoms]
+            boundaries = [raster_geom.boundary_as_shapely() for raster_geom in raster_geoms]
             inventory = geopd.GeoDataFrame({'tile': raster_geoms, 'geometry': boundaries},
                                            index=tile_ids, crs=raster_geoms[0].sref.proj4)
         else:
@@ -1384,13 +1410,11 @@ class RasterGrid(metaclass=abc.ABCMeta):
             raster_grid = RasterGrid(inventory, parent=self)
             return raster_grid
 
-    def plot(self, label_tiles=False, **kwargs):
+    def plot(self, ax=None, label_tiles=False, **kwargs):
         """
         Plots the raster grid on a map, i.e. all of its tiles/raster geometries.
-
         Parameters
         ----------
-
         label_tiles : bool, optional
             If true, the tile ID is plotted at the center of the raster geometry (default is False).
         **kwargs
@@ -1398,7 +1422,9 @@ class RasterGrid(metaclass=abc.ABCMeta):
         """
 
         for i in range(len(self.inventory)):
-            self.inventory['tile'][i].plot(label_geom=label_tiles, **kwargs)
+            ax = self.inventory['tile'][i].plot(ax=ax, label_geom=label_tiles, **kwargs)
+
+        return ax
 
     def __len__(self):
         """ int : Returns number tiles in the raster grid. """

@@ -5,7 +5,7 @@ from pyproj.crs import CRS
 from cartopy import crs as ccrs
 from shapely.geometry import LineString
 
-
+# ToDo: kein Setter
 class SpatialRef:
     """
     This class represents any OGC compliant spatial reference system. Internally, the
@@ -19,7 +19,7 @@ class SpatialRef:
         """
         Constructs a ˋSpatialRefˋ instance based on ˋargˋ.
         If the type is not provided by the type argument ˋsref_typeˋ, the constructor tries
-        to determine the type itself.:
+        to determine the type itself.
 
 
         Parameters
@@ -106,8 +106,7 @@ class SpatialRef:
 
         if self._proj4 is None:
             success = self._check_conversion("proj4")
-            if success:
-                self._proj4 = self.osr_to_proj4(self.osr_sref)
+            self._proj4 = self.osr_to_proj4(self.osr_sref)
         return self._proj4
 
     @proj4.setter
@@ -124,10 +123,9 @@ class SpatialRef:
 
         self.osr_sref = self.proj4_to_osr(proj4_params)
         self._sref_type = 'proj4'
-        if self._proj4 != self.proj4:
-            self._proj4 = self.proj4
-            self._epsg = self.epsg
-            self._wkt = self.wkt
+        self._epsg = None
+        self._wkt = None
+        self._proj4 = self.osr_to_proj4(self.osr_sref)
 
     @property
     def epsg(self):
@@ -137,8 +135,7 @@ class SpatialRef:
 
         if self._epsg is None:
             success = self._check_conversion("epsg")
-            if success:
-                self._epsg = self.osr_to_epsg(self.osr_sref)
+            self._epsg = self.osr_to_epsg(self.osr_sref)
 
         return self._epsg
 
@@ -155,10 +152,9 @@ class SpatialRef:
 
         self.osr_sref = self.epsg_to_osr(epsg_code)
         self._sref_type = 'epsg'
-        if self._epsg != self.epsg:
-            self._epsg = self.epsg
-            self._wkt = self.wkt
-            self._proj4 = self.proj4
+        self._epsg = self.osr_to_epsg(self.osr_sref)
+        self._wkt = None
+        self._proj4 = None
 
     @property
     def wkt(self):
@@ -168,8 +164,7 @@ class SpatialRef:
 
         if self._wkt is None:
             success = self._check_conversion("wkt")
-            if success:
-                self._wkt = self.osr_to_wkt(self.osr_sref)
+            self._wkt = self.osr_to_wkt(self.osr_sref)
 
         return self._wkt
 
@@ -188,10 +183,9 @@ class SpatialRef:
 
         self.osr_sref = self.wkt_to_osr(wkt_string)
         self._sref_type = 'wkt'
-        if self._wkt != self.wkt:
-            self._wkt = self.wkt
-            self._epsg = self.epsg
-            self._proj4 = self.proj4
+        self._epsg = None
+        self._wkt = self.osr_to_wkt(self.osr_sref)
+        self._proj4 = None
 
     def to_pretty_wkt(self):
         """
@@ -520,7 +514,7 @@ class PROJ4Projection(ccrs.Projection):
                      'towgs84': 'towgs84',
                      'nadgrids': 'nadgrids'}
 
-    def __init__(self, terms, globe=None, bounds=None):
+    def __init__(self, terms, bounds, globe=None):
         """
         Creates an instance from PROJ4 parameters, globe and projection boundaries.
 

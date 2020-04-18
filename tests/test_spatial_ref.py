@@ -28,27 +28,23 @@ class TestSpatialref(unittest.TestCase):
     def test_create_from_epsg(self):
         """ Creates a `SpatialRef` object from an EPSG code and checks all conversions. """
 
-        epsg = None  # None because EPSG <-> PROJ4 transformation is not possible/is ambiguous
-
         sref = SpatialRef(self.epsg)
-        self.assertListEqual([self.epsg, self.wkt, epsg],
+        self.assertListEqual([self.epsg, self.wkt, self.proj4],
                              [sref.epsg, sref.wkt, sref.proj4])
 
         sref = SpatialRef(self.epsg, sref_type="epsg")
-        self.assertListEqual([self.epsg, self.wkt, epsg],
+        self.assertListEqual([self.epsg, self.wkt, self.proj4],
                              [sref.epsg, sref.wkt, sref.proj4])
 
     def test_create_from_wkt(self):
         """ Creates a `SpatialRef` object from a WKT string and checks all conversions."""
 
-        proj4 = None  # None because WKT <-> PROJ4 transformation is not possible/is ambiguous
-
         sref = SpatialRef(self.wkt)
-        self.assertListEqual([self.epsg, self.wkt, proj4],
+        self.assertListEqual([self.epsg, self.wkt, self.proj4],
                              [sref.epsg, sref.wkt, sref.proj4])
 
         sref = SpatialRef(self.wkt, sref_type="wkt")
-        self.assertListEqual([self.epsg, self.wkt, proj4],
+        self.assertListEqual([self.epsg, self.wkt, self.proj4],
                              [sref.epsg, sref.wkt, sref.proj4])
 
     def test_create_from_proj4(self):
@@ -60,7 +56,7 @@ class TestSpatialref(unittest.TestCase):
               'UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],' \
               'PARAMETER["central_meridian",16.33333333333333],PARAMETER["scale_factor",1],' \
               'PARAMETER["false_easting",750000],PARAMETER["false_northing",-5000000],UNIT["Meter",1]]'
-        epsg = None  # None because PROJ4 <-> EPSG transformation is not possible/is ambiguous
+        epsg = None  # None because EPSG <-> PROJ4 transformation is not possible/is ambiguous
 
         sref = SpatialRef(self.proj4)
         self.assertListEqual([epsg, wkt, self.proj4],
@@ -127,6 +123,7 @@ class TestSpatialref(unittest.TestCase):
         sref_b = SpatialRef(4326, sref_type='epsg')
 
         assert sref_a != sref_b
+
 
 if __name__ == '__main__':
     unittest.main()

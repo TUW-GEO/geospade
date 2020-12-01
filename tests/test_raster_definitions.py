@@ -51,7 +51,7 @@ class RasterGeometryTest(unittest.TestCase):
 
         raster_geom = RasterGeometry.from_geometry(self.geom, self.x_pixel_size, self.y_pixel_size, sref=self.sref)
 
-        self.assertListEqual(raster_geom.vertices, list(self.geom.exterior.coords))
+        self.assertListEqual(raster_geom.outer_boundary_corners, list(self.geom.exterior.coords))
 
     def test_get_common_geom(self):
         """ Tests the creation of an encasing raster geometry from multiple raster geometries. """
@@ -132,7 +132,7 @@ class RasterGeometryTest(unittest.TestCase):
                     (self.extent[0], self.extent[3]),
                     (self.extent[0], self.extent[1])]
 
-        self.assertListEqual(self.raster_geom.vertices, vertices)
+        self.assertListEqual(self.raster_geom.outer_boundary_corners, vertices)
 
     def test_x_coords(self):
         """ Tests coordinate retrieval along x dimension. """

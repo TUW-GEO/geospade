@@ -1,18 +1,19 @@
 import re
-import warnings
 import osr
+import warnings
 from pyproj.crs import CRS
 from cartopy import crs as ccrs
 from shapely.geometry import LineString
 
-# ToDo: kein Setter
+
 class SpatialRef:
     """
     This class represents any OGC compliant spatial reference system. Internally, the
-    GDAL OSR Spatial Reference class is used, which offers access to and control over
+    GDAL OSR SpatialReference class is used, which offers access to and control over
     different representations, such as EPSG, PROJ4 or WKT. Additionally, it can also
-    create an instance of a Cartopy projection subclass (PROJ4Projection), which
+    create an instance of a Cartopy Projection subclass (`PROJ4Projection`), which
     can be used to plot geometries or data.
+
     """
 
     def __init__(self, arg, sref_type=None):
@@ -20,7 +21,6 @@ class SpatialRef:
         Constructs a ˋSpatialRefˋ instance based on ˋargˋ.
         If the type is not provided by the type argument ˋsref_typeˋ, the constructor tries
         to determine the type itself.
-
 
         Parameters
         ----------
@@ -39,11 +39,12 @@ class SpatialRef:
         sref_type : str, optional
             String defining the type of ˋargˋ. It can be: 'proj4', 'wkt' or 'epsg'.
             If it is None, the spatial reference type of ˋargˋ is guessed.
+
         """
 
         self.osr_sref = osr.SpatialReference()
 
-        if sref_type is None:
+        if sref_type is None:  # argument type guessing
             if isinstance(arg, int):  # integer is interpreted as EPSG
                 sref_type = 'epsg'
             elif isinstance(arg, dict):  # dictionary representing PROJ4 parameters
@@ -65,11 +66,11 @@ class SpatialRef:
         self._wkt = None
         # set the spatial reference types
         if sref_type == 'proj4':
-            self.proj4 = arg
+            self._proj4 = arg
         elif sref_type == 'epsg':
-            self.epsg = arg
+            self._epsg = arg
         elif sref_type == 'wkt':
-            self.wkt = arg
+            self._wkt = arg
         else:
             err_msg = "Spatial reference type '{}' is unknown. Use 'epsg', 'wkt' or 'proj4'."
             raise Exception(err_msg.format(sref_type))
@@ -82,7 +83,7 @@ class SpatialRef:
     def from_osr(cls, osr_sref):
         """
         Creates a `SpatialRef` object from an OSR spatial reference object. To allow this transformation,
-        the PROJ4 is used.
+        PROJ4 is used.
 
         Parameters
         ----------
@@ -93,6 +94,7 @@ class SpatialRef:
         -------
         SpatialRef
             Spatial reference defined by the exported PROJ4 string from an OSR spatial reference object.
+
         """
 
         proj4_string = osr_sref.ExportToProj4()
@@ -100,127 +102,65 @@ class SpatialRef:
 
     @property
     def proj4(self):
-        """
-        str : PROJ4 string representation
-        """
+        """ str : PROJ4 string representation. """
 
         if self._proj4 is None:
-            success = self._check_conversion("proj4")
+            _ = self._check_conversion("proj4")
             self._proj4 = self.osr_to_proj4(self.osr_sref)
+
         return self._proj4
-
-    @proj4.setter
-    def proj4(self, proj4_params):
-        """
-        Sets internal spatial reference from PROJ4 parameters.
-
-        Parameters
-        ----------
-        proj4_params : str or dict
-            PROJ4 parameters as a string (e.g., '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs') or a dictionary
-            (e.g., {'proj': 'longlat', 'ellps': 'WGS84', 'datum': 'WGS84', 'no_defs' : True})
-        """
-
-        self.osr_sref = self.proj4_to_osr(proj4_params)
-        self._sref_type = 'proj4'
-        self._epsg = None
-        self._wkt = None
-        self._proj4 = self.osr_to_proj4(self.osr_sref)
 
     @property
     def epsg(self):
-        """
-        int : EPSG code representation as an integer.
-        """
+        """ int : EPSG code representation as an integer. """
 
         if self._epsg is None:
-            success = self._check_conversion("epsg")
+            _ = self._check_conversion("epsg")
             self._epsg = self.osr_to_epsg(self.osr_sref)
 
         return self._epsg
 
-    @epsg.setter
-    def epsg(self, epsg_code):
-        """
-        Sets internal spatial reference from an EPSG code.
-
-        Parameters
-        ----------
-        epsg_code : int or str
-            EPSG Code as a string (e.g., 'EPSG: 4326') or integer (e.g., 4326).
-        """
-
-        self.osr_sref = self.epsg_to_osr(epsg_code)
-        self._sref_type = 'epsg'
-        self._epsg = self.osr_to_epsg(self.osr_sref)
-        self._wkt = None
-        self._proj4 = None
-
     @property
     def wkt(self):
-        """
-        str : Well Known Text (WKT) representation of the spatial reference without tabs or line breaks.
-        """
+        """ str : Well Known Text (WKT) representation of the spatial reference without tabs or line breaks. """
 
         if self._wkt is None:
-            success = self._check_conversion("wkt")
+            _ = self._check_conversion("wkt")
             self._wkt = self.osr_to_wkt(self.osr_sref)
 
         return self._wkt
 
-    @wkt.setter
-    def wkt(self, wkt_string):
-        """
-        Sets internal spatial reference from a Well Known Text (WKT) string.
-
-        Parameters
-        ----------
-        wkt_string : str
-            WKT string, e.g., 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,
-            AUTHORITY["EPSG","7030"]], AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],
-            UNIT["degree",0.01745329251994328,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]'.
-        """
-
-        self.osr_sref = self.wkt_to_osr(wkt_string)
-        self._sref_type = 'wkt'
-        self._epsg = None
-        self._wkt = self.osr_to_wkt(self.osr_sref)
-        self._proj4 = None
-
     def to_pretty_wkt(self):
-        """
-        str : Well Known Text (WKT) representation of the spatial reference formatted with tabs and line breaks.
-        """
+        """ str : Well Known Text (WKT) representation of the spatial reference formatted with tabs and line breaks. """
 
         return self.osr_sref.ExportToPrettyWkt()
 
     def to_proj4_dict(self):
-        """
-        dict : Converts internal PROJ4 parameter string to a dictionary, where the keys do not contain a plus and
-        the values are converted to non-string values if possible.
-        """
+        """ dict : Converts internal PROJ4 parameter string to a dictionary, where the keys do not contain a plus and the values are converted to non-string values if possible. """
 
         return self._proj4_str_to_dict(self.proj4)
 
     def to_cartopy_crs(self, bounds=None):
         """
-        Creates a PROJ4Projection object that can be used as an argument of the
-        cartopy `projection` and `transfrom` kwargs. (`PROJ4Projection` is a
-        subclass of a `cartopy.crs.Projection` class)
+        Creates a `PROJ4Projection` object that can be used as an argument of the
+        cartopy `projection` and `transform` kwargs. (`PROJ4Projection` is a
+        subclass of the `cartopy.crs.Projection` class)
 
         Parameters
         ----------
         bounds : 4-tuple, optional
-            Boundary of the projection (lower left x, upper right x,
-                                        lower left y, upper right y).
+            Boundary of the projection (lower left x, lower left y,
+            upper right x, upper right y).
 
         Returns
         -------
         PROJ4Projection
             `PROJ4Projection` instance representing the spatial reference.
+
         """
 
-        return PROJ4Projection(self.to_proj4_dict(), bounds=bounds)
+        crs_bounds = bounds[0], bounds[2], bounds[1], bounds[3]
+        return PROJ4Projection(self.to_proj4_dict(), bounds=crs_bounds)
 
     @staticmethod
     def osr_to_proj4(osr_sref):
@@ -236,6 +176,7 @@ class SpatialRef:
         -------
         str
             PROJ4 string.
+
         """
 
         return osr_sref.ExportToProj4()[:-1]
@@ -255,9 +196,10 @@ class SpatialRef:
         -------
         osr.SpatialReference
             OSR spatial reference.
+
         """
 
-        # convert to string because GDAL takes proj4  as string only
+        # convert to string because GDAL takes PROJ4 as string only
         if isinstance(proj4_params, dict):
             arg = ''
             for k, v in proj4_params.items():
@@ -266,11 +208,11 @@ class SpatialRef:
             if '+' == proj4_params[0]:
                 arg = proj4_params
             else:
-                err_msg = "'{}' does not start with/contain a plus, which is mandatory for a Proj4 string."
-                raise Exception(err_msg)
+                err_msg = "'{}' does not start with a plus, which is mandatory for a PROJ4 string."
+                raise ValueError(err_msg)
         else:
-            err_msg = "Proj4 parameters have to be either given as a string or a dict (see docs)."
-            raise Exception(err_msg)
+            err_msg = "PROJ4 parameters have to be either given as a string or a dict."
+            raise ValueError(err_msg)
 
         osr_sref = osr.SpatialReference()
         osr_sref.ImportFromProj4(arg)
@@ -291,6 +233,7 @@ class SpatialRef:
         -------
         int
             EPSG code.
+
         """
 
         osr_sref.AutoIdentifyEPSG()
@@ -312,6 +255,7 @@ class SpatialRef:
         -------
         osr.SpatialReference
             OSR spatial reference.
+
         """
 
         if isinstance(epsg_code, int):
@@ -322,10 +266,10 @@ class SpatialRef:
                 arg = epsg_code_fndngs[0]
             else:
                 err_msg = "'{}' is not an EPSG conform string. Either use the EPSG code as an integer or as a string, e.g. 'EPSG:4326'"
-                raise Exception(err_msg.format(epsg_code))
+                raise ValueError(err_msg.format(epsg_code))
         else:
             err_msg = "The EPSG code has to be either given as a string or an integer (see docs)."
-            raise Exception(err_msg)
+            raise ValueError(err_msg)
 
         osr_sref = osr.SpatialReference()
         osr_sref.ImportFromEPSG(arg)
@@ -346,6 +290,7 @@ class SpatialRef:
         -------
         str
             WKT string.
+
         """
 
         return osr_sref.ExportToWkt()
@@ -366,6 +311,7 @@ class SpatialRef:
         -------
         osr.SpatialReference
             OSR spatial reference.
+
         """
 
         if isinstance(wkt_string, str):
@@ -373,7 +319,7 @@ class SpatialRef:
                 arg = wkt_string
             else:
                 err_msg = "'{}' is not a valid WKT string."
-                raise Exception(err_msg)
+                raise ValueError(err_msg)
         else:
             err_msg = "The argument has to be provided as a string."
             raise ValueError(err_msg)
@@ -395,7 +341,8 @@ class SpatialRef:
         Returns
         -------
         dict
-            Dictionary containing PROJ4 parameters.
+            Dictionary containing parsed PROJ4 parameters.
+
         """
 
         proj4_dict = dict()
@@ -428,9 +375,10 @@ class SpatialRef:
         -----
         Key only parameters will be assigned a value of `True`.
         EPSG codes should be provided as "EPSG:XXXX" where "XXXX"
-        is the EPSG number code. It can also be provided as
+        is the EPSG code number. It can also be provided as
         "+init=EPSG:XXXX" as long as the underlying PROJ library
         supports it (deprecated in PROJ 6.0+).
+
         """
 
         # convert EPSG codes to equivalent PROJ4 string definition
@@ -455,6 +403,7 @@ class SpatialRef:
         -------
         bool
             If False, the bijective conversion between two spatial reference types is not possible.
+
         """
 
         sref_types = ["proj4", "wkt", "epsg"]
@@ -498,13 +447,14 @@ class SpatialRef:
 
 class PROJ4Projection(ccrs.Projection):
     """
-    This class represents any cartopy projection based on its PROJ4 parameters.
+    This class represents any Cartopy Projection based on its PROJ4 parameters.
     Instances of this class can be parsed as 'projection' and 'transform' kwargs
-    as regular Cartopy projections, because it is a subclass of a
+    as regular Cartopy Projections, because it is a subclass of a
     `cartopy.crs.Projection` class.
+
     """
 
-    # proj4 to cartopy.crs.Globe parameter dictionary
+    # PROJ4 to cartopy.crs.Globe parameter dictionary
     _GLOBE_PARAMS = {'datum': 'datum',
                      'ellps': 'ellipse',
                      'a': 'semimajor_axis',
@@ -526,6 +476,7 @@ class PROJ4Projection(ccrs.Projection):
             A Cartopy `Globe` instance. If omitted, constructor creates it from the terms itself.
         bounds : 4-tuple
             Boundary of the projection (lower left x, upper right x, lower left y, upper right y)
+
         """
 
         globe = self._globe_from_proj4(terms) if globe is None else globe
@@ -552,13 +503,13 @@ class PROJ4Projection(ccrs.Projection):
     @property
     def x_limits(self):
         """ tuple : x coordinate limits. """
-        x0, x1, y0, y1 = self.bounds
+        x0, x1, _, _ = self.bounds
         return (x0, x1)
 
     @property
     def y_limits(self):
         """ tuple : y coordinate limits. """
-        x0, x1, y0, y1 = self.bounds
+        _, _, y0, y1 = self.bounds
         return (y0, y1)
 
     @property
@@ -574,16 +525,18 @@ class PROJ4Projection(ccrs.Projection):
         Parameters
         ----------
         proj4_terms : dict
-            PROJ4 parameters including terms that are irrelevant for the globe.
+            PROJ4 parameters including terms that are relevant for the globe.
 
         Returns
         -------
         ccrs.Globe
             Cartopy `Globe` instance representing a projection.
+
         """
 
         globe_terms = filter(lambda term: term[0] in self._GLOBE_PARAMS,
                              proj4_terms.items())
         globe = ccrs.Globe(**{self._GLOBE_PARAMS[name]: value for name, value in
                               globe_terms})
+
         return globe

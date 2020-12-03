@@ -42,7 +42,7 @@ class SpatialRef:
 
         """
 
-        self.osr_sref = osr.SpatialReference()
+        self.osr_sref = None
 
         if sref_type is None:  # argument type guessing
             if isinstance(arg, int):  # integer is interpreted as EPSG
@@ -66,11 +66,14 @@ class SpatialRef:
         self._wkt = None
         # set the spatial reference types
         if sref_type == 'proj4':
-            self._proj4 = arg
+            self.osr_sref = self.proj4_to_osr(arg)
+            self._proj4 = self.osr_to_proj4(self.osr_sref)
         elif sref_type == 'epsg':
-            self._epsg = arg
+            self.osr_sref = self.epsg_to_osr(arg)
+            self._epsg = self.osr_to_epsg(self.osr_sref)
         elif sref_type == 'wkt':
-            self._wkt = arg
+            self.osr_sref = self.wkt_to_osr(arg)
+            self._wkt = self.osr_to_wkt(self.osr_sref)
         else:
             err_msg = "Spatial reference type '{}' is unknown. Use 'epsg', 'wkt' or 'proj4'."
             raise Exception(err_msg.format(sref_type))
@@ -140,27 +143,26 @@ class SpatialRef:
 
         return self._proj4_str_to_dict(self.proj4)
 
-    def to_cartopy_crs(self, bounds=None):
+    def to_cartopy_proj(self):
         """
-        Creates a `PROJ4Projection` object that can be used as an argument of the
-        cartopy `projection` and `transform` kwargs. (`PROJ4Projection` is a
-        subclass of the `cartopy.crs.Projection` class)
-
-        Parameters
-        ----------
-        bounds : 4-tuple, optional
-            Boundary of the projection (lower left x, lower left y,
-            upper right x, upper right y).
+        Creates a `cartopy.crs.Projection` instance from the EPSG code of the spatial reference.
 
         Returns
         -------
-        PROJ4Projection
-            `PROJ4Projection` instance representing the spatial reference.
+        cartopy.crs.projection
+            Cartopy projection representing the projection of the spatial reference system.
 
         """
+        ccrs_proj = None
+        if self.epsg is None:  # TODO: should an error be raised?
+            wrn_msg = "EPSG is not known, thus no Cartopy projection can be created."
+            warnings.warn(wrn_msg)
+        elif self.epsg == 4326:
+            ccrs_proj = ccrs.PlateCarree()
+        else:
+            ccrs_proj = ccrs.epsg(self.epsg)
 
-        crs_bounds = bounds[0], bounds[2], bounds[1], bounds[3]
-        return PROJ4Projection(self.to_proj4_dict(), bounds=crs_bounds)
+        return ccrs_proj
 
     @staticmethod
     def osr_to_proj4(osr_sref):
@@ -443,100 +445,3 @@ class SpatialRef:
     def __ne__(self, other):
         """ Checks if this and another `SpatialRef` object are unequal according to their PROJ4 strings. """
         return not self == other
-
-
-class PROJ4Projection(ccrs.Projection):
-    """
-    This class represents any Cartopy Projection based on its PROJ4 parameters.
-    Instances of this class can be parsed as 'projection' and 'transform' kwargs
-    as regular Cartopy Projections, because it is a subclass of a
-    `cartopy.crs.Projection` class.
-
-    """
-
-    # PROJ4 to cartopy.crs.Globe parameter dictionary
-    _GLOBE_PARAMS = {'datum': 'datum',
-                     'ellps': 'ellipse',
-                     'a': 'semimajor_axis',
-                     'b': 'semiminor_axis',
-                     'f': 'flattening',
-                     'rf': 'inverse_flattening',
-                     'towgs84': 'towgs84',
-                     'nadgrids': 'nadgrids'}
-
-    def __init__(self, terms, bounds, globe=None):
-        """
-        Creates an instance from PROJ4 parameters, globe and projection boundaries.
-
-        Parameters
-        ----------
-        terms : dict
-            Dictionary containing PROj4 parameters of a projection.
-        globe : cartopy.crs.Globe, optional
-            A Cartopy `Globe` instance. If omitted, constructor creates it from the terms itself.
-        bounds : 4-tuple
-            Boundary of the projection (lower left x, upper right x, lower left y, upper right y)
-
-        """
-
-        globe = self._globe_from_proj4(terms) if globe is None else globe
-
-        other_terms = []  # terms that are not defining the datum / globe
-        for term in terms.items():
-            if term[0] not in self._GLOBE_PARAMS:
-                other_terms.append(term)
-        super(PROJ4Projection, self).__init__(other_terms, globe)
-
-        self.bounds = bounds
-
-    def __repr__(self):
-        """ str :  String representation of `PROJ4Projection`. """
-        return 'PROJ4Projection({})'.format(self.proj4_init)
-
-    @property
-    def boundary(self):
-        """ shapely.geometry.LineString : Linestring describing the boundaries of the projection. """
-        x0, x1, y0, y1 = self.bounds
-        return LineString([(x0, y0), (x0, y1), (x1, y1), (x1, y0),
-                           (x0, y0)])
-
-    @property
-    def x_limits(self):
-        """ tuple : x coordinate limits. """
-        x0, x1, _, _ = self.bounds
-        return (x0, x1)
-
-    @property
-    def y_limits(self):
-        """ tuple : y coordinate limits. """
-        _, _, y0, y1 = self.bounds
-        return (y0, y1)
-
-    @property
-    def threshold(self):
-        """ float : Threshold defined by the minimum coordinate extent. """
-        x0, x1, y0, y1 = self.bounds
-        return min(abs(x1 - x0), abs(y1 - y0)) / 100.
-
-    def _globe_from_proj4(self, proj4_terms):
-        """
-        Create a `Globe` object from PROJ4 parameters.
-
-        Parameters
-        ----------
-        proj4_terms : dict
-            PROJ4 parameters including terms that are relevant for the globe.
-
-        Returns
-        -------
-        ccrs.Globe
-            Cartopy `Globe` instance representing a projection.
-
-        """
-
-        globe_terms = filter(lambda term: term[0] in self._GLOBE_PARAMS,
-                             proj4_terms.items())
-        globe = ccrs.Globe(**{self._GLOBE_PARAMS[name]: value for name, value in
-                              globe_terms})
-
-        return globe

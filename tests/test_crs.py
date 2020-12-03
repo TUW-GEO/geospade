@@ -1,10 +1,11 @@
-import unittest
 import osr
-from geospade.spatial_ref import SpatialRef
+import unittest
+from geospade.crs import SpatialRef
+import cartopy.crs as ccrs
 
 
 class TestSpatialref(unittest.TestCase):
-    """ Test class for evaluating all functionalities of SpatialRef. """
+    """ Test class for evaluating all functions of `SpatialRef`. """
 
     def setUp(self):
         """ Initialises static class variables for verification. """
@@ -100,13 +101,18 @@ class TestSpatialref(unittest.TestCase):
                      'PARAMETER["false_easting",750000],\n    PARAMETER["false_northing",-5000000],\n    ' \
                      'UNIT["metre",1,\n        AUTHORITY["EPSG","9001"]],\n    AUTHORITY["EPSG","31259"]]'
 
-
         sref = SpatialRef(self.epsg)
         assert sref.to_pretty_wkt() == pretty_wkt
 
-    def test_to_cartopy_crs(self):
-        """  Tests Cartopy projection creation from an `SpatialRef` instance. """
-        pass
+    def test_to_cartopy_proj(self):
+        """  Tests Cartopy projection creation from a `SpatialRef` instance. """
+        sref = SpatialRef(4326)
+        capy_proj = sref.to_cartopy_proj()
+        assert isinstance(capy_proj, ccrs.PlateCarree)
+
+        sref = SpatialRef(self.epsg)
+        capy_proj = sref.to_cartopy_proj()
+        assert isinstance(capy_proj, ccrs.Projection)
 
     def test_equal(self):
         """ Tests if two `SpatialRef` instances are equal. """

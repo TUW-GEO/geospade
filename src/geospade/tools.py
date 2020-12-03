@@ -2,6 +2,7 @@ import ogr
 import shapely
 import numpy as np
 from copy import deepcopy
+from geospade import DECIMALS
 from geospade.errors import SrefUnknown
 from geospade.errors import GeometryUnknown
 
@@ -71,8 +72,8 @@ def polar_point(x_ori, y_ori, dist, angle, deg=True):
 
     """
     angle = np.radians(angle) if deg else angle
-    x_pp = x_ori + dist * np.cos(angle)
-    y_pp = y_ori + dist * np.sin(angle)
+    x_pp = np.around(x_ori + dist * np.cos(angle), decimals=DECIMALS)
+    y_pp = np.around(y_ori + dist * np.sin(angle), decimals=DECIMALS)
 
     return x_pp, y_pp
 
@@ -316,3 +317,41 @@ def any_geom2ogr_geom(geom, sref=None):
         raise GeometryUnknown(geom)
 
     return ogr_geom
+
+
+def _round_geom_coords(geom):
+    """
+    'Cleans' the coordinates, so that it has rounded coordinates.
+
+    Parameters
+    ----------
+    geom : ogr.Geometry
+        An OGR geometry.
+
+    Returns
+    -------
+    geometry_out : OGRGeometry
+        An OGR geometry with 'cleaned' and rounded coordinates.
+
+    """
+    if not geom.ExportToWkt().startswith('POLYGON'):
+        err_msg = "Only OGR Polygons are supported at the moment."
+        raise NotImplementedError(err_msg)
+
+    ring = geom.GetGeometryRef(0)
+
+    rounded_ring = ogr.Geometry(ogr.wkbLinearRing)
+
+    n_points = ring.GetPointCount()
+
+    for p in range(n_points):
+        lon, lat, z = ring.GetPoint(p)
+        rlon, rlat, rz = [np.round(lon, decimals=DECIMALS),
+                          np.round(lat, decimals=DECIMALS),
+                          np.round(z, decimals=DECIMALS)]
+        rounded_ring.AddPoint(rlon, rlat, rz)
+
+    geometry_out = ogr.Geometry(ogr.wkbPolygon)
+    geometry_out.AddGeometry(rounded_ring)
+
+    return geometry_out

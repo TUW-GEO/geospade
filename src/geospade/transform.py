@@ -2,6 +2,7 @@ import warnings
 import osr
 import numpy as np
 from geospade import DECIMALS
+from geospade.tools import _round_geom_coords
 
 
 def xy2ij(x, y, geotrans, origin="ul"):
@@ -110,7 +111,7 @@ def ij2xy(i, j, geotrans, origin="ul"):
     return x, y
 
 
-def coordinate_traffo(x, y, this_sref, other_sref):
+def transform_coords(x, y, this_sref, other_sref):
     """
     Transforms coordinates from a source to a target spatial reference system.
 
@@ -138,6 +139,33 @@ def coordinate_traffo(x, y, this_sref, other_sref):
     x, y, _ = ct.TransformPoint(x, y)
 
     return x, y
+
+
+def transform_geom(geom, other_sref):
+    """
+    Transforms coordinates from a source to a target spatial reference system.
+
+    Parameters
+    ----------
+    geom : ogr.Geometry
+        OGR geometry with an assigned spatial reference system.
+    other_sref : SpatialRef, optional
+        Spatial reference of the target geometry.
+
+    Returns
+    -------
+    geom
+        Transformed OGR geometry.
+
+    """
+
+    geometry_out = geom.Clone()
+    # transform geometry to new spatial reference system.
+    geometry_out.TransformTo(other_sref.osr_sref)
+    # round geometry coordinates
+    geometry_out = _round_geom_coords(geometry_out)
+
+    return geometry_out
 
 
 def build_geotransform(ul_x, ul_y, x_pixel_size, y_pixel_size, rot, deg=True):

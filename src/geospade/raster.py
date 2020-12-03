@@ -19,7 +19,8 @@ from geospade.tools import bbox_to_polygon
 from geospade.transform import build_geotransform
 from geospade.transform import xy2ij
 from geospade.transform import ij2xy
-from geospade.transform import coordinate_traffo
+from geospade.transform import transform_coords
+from geospade.transform import transform_geom
 from geospade.crs import SpatialRef
 from geospade import DECIMALS
 
@@ -190,7 +191,7 @@ def _align_geom(align=False):
 
     """
 
-    def decorator(f):
+    def decorator(f, *args, **kwargs):
         """
         Decorator calling wrapper function.
 
@@ -213,10 +214,13 @@ def _align_geom(align=False):
                 err_msg = "Spatial reference of the given geometry is not set."
                 raise AttributeError(err_msg)
 
-            if align and not self.sref.osr_sref.IsSame(other_osr_sref):
-                    geom.TransformTo(self.sref.osr_sref)
+            wrpd_geom = None
+            if align and hasattr(self, "sref") and not self.sref.osr_sref.IsSame(other_osr_sref):
+                wrpd_geom = transform_geom(geom, self.sref)
+            else:
+                wrpd_geom = geom
 
-            return f(self, geom, *args[1:], **kwargs)
+            return f(self, wrpd_geom, *args[1:], **kwargs)
 
         return wrapper
     return decorator
@@ -325,7 +329,7 @@ class RasterGeometry:
         return cls(n_rows, n_cols, sref, geotrans=geotrans, px_origin='ul', **kwargs)
 
     @classmethod
-    @_align_geom
+    @_align_geom(align=True)
     def from_geometry(cls, geom, x_pixel_size, y_pixel_size, **kwargs):
         """
         Creates a `RasterGeometry` object from an existing geometry object.
@@ -359,11 +363,11 @@ class RasterGeometry:
 
         sref = SpatialRef.from_osr(geom.GetSpatialReference())
 
-        geom = shapely.wkt.loads(geom.ExportToWkt())
-        geom_ch = geom.convex_hull
+        geom_ch = geom.ConvexHull()
+        geom_sh = shapely.wkt.loads(geom_ch.ExportToWkt())
 
         if is_rectangular(geom_ch):  # the polygon can be described directly as a RasterGeometry
-            geom_pts = list(geom.exterior.coords)  # get boundary coordinates
+            geom_pts = list(geom_sh.exterior.coords)  # get boundary coordinates
             # separate coordinates
             xs = np.array([geom_pt[0] for geom_pt in geom_pts[:-1]])
             ys = np.array([geom_pt[1] for geom_pt in geom_pts[:-1]])
@@ -379,15 +383,25 @@ class RasterGeometry:
             else:
                 ul_idx = ul_idx_2
 
-            # based on the upper left corner, find the other corner coordinates in a clockwise way
-            ul_x = xs[ul_idx]
-            ul_y = ys[ul_idx]
-            ur_x = xs[ul_idx-1]
-            ur_y = ys[ul_idx-1]
-            lr_x = xs[ul_idx-2]
-            lr_y = ys[ul_idx-2]
-            ll_x = xs[ul_idx-3]
-            ll_y = ys[ul_idx-3]
+            # based on the upper left corner, find the other corner coordinates
+            if geom_sh.exterior.is_ccw:
+                ul_x = xs[ul_idx]
+                ul_y = ys[ul_idx]
+                ur_x = xs[ul_idx-1]
+                ur_y = ys[ul_idx-1]
+                lr_x = xs[ul_idx-2]
+                lr_y = ys[ul_idx-2]
+                ll_x = xs[ul_idx-3]
+                ll_y = ys[ul_idx-3]
+            else:
+                ul_x = xs[ul_idx]
+                ul_y = ys[ul_idx]
+                ll_x = xs[ul_idx - 1]
+                ll_y = ys[ul_idx - 1]
+                lr_x = xs[ul_idx - 2]
+                lr_y = ys[ul_idx - 2]
+                ur_x = xs[ul_idx - 3]
+                ur_y = ys[ul_idx - 3]
 
             # azimuth of the bottom base of the rectangle = orientation
             rot = np.arctan2(lr_y - ll_y, lr_x - ll_x)
@@ -402,9 +416,9 @@ class RasterGeometry:
             n_rows = int(round(height / y_pixel_size, DECIMALS))
             n_cols = int(round(width / x_pixel_size, DECIMALS))
 
-            return RasterGeometry(n_rows, n_cols, sref, geotrans=geotrans, px_origin='ul', **kwargs)
+            return RasterGeometry(n_rows, n_cols, sref, geotrans=geotrans, **kwargs)
         else:  # geom is not a rectangle
-            bbox = geom.bounds
+            bbox = geom_sh.bounds
             return cls.from_extent(bbox, sref, x_pixel_size, y_pixel_size, **kwargs)
 
     @classmethod
@@ -641,29 +655,6 @@ class RasterGeometry:
         """ shapely.geometry.Polygon : Boundary of the raster geometry represented as a Shapely polygon. """
         return shapely.wkt.loads(self.boundary.ExportToWkt())
 
-    def to_cartopy_crs(self, bounds=None):
-        """
-        Creates a `PROJ4Projection` object that can be used as an argument of the
-        Cartopy `projection` and `transform` kwargs. (`PROJ4Projection` is a
-        subclass of a `cartopy.crs.Projection` class)
-
-        Parameters
-        ----------
-        bounds : 4-tuple, optional
-            Boundary of the projection (lower left x, upper right x, lower left y, upper right y).
-            The default behaviour (None) sets the bounds to the extent of the raster geometry.
-
-        Returns
-        -------
-        PROJ4Projection
-            `PROJ4Projection` instance representing the spatial reference of the raster geometry.
-
-        """
-
-        if bounds is None:
-            bounds = self.outer_boundary_extent
-        return self.sref.to_cartopy_crs(bounds)
-
     @_align_geom(align=True)
     def intersects(self, other):
         """
@@ -746,10 +737,10 @@ class RasterGeometry:
              return intsct_raster_geom
 
         intersection = self.boundary.Intersection(other)
-        bbox = intersection.GetEnvelope()
+        bbox = np.around(intersection.GetEnvelope(), decimals=DECIMALS)
         if snap_to_grid:
-            ll_px = self.xy2rc(bbox[0], bbox[2], px_origin="ll")
-            ur_px = self.xy2rc(bbox[1], bbox[3], px_origin="ur")
+            ll_px = self.xy2rc(bbox[0], bbox[2], px_origin="ul")
+            ur_px = self.xy2rc(bbox[1], bbox[3], px_origin="ul")
             bbox = self.rc2xy(*ll_px, px_origin="ll") + self.rc2xy(*ur_px, px_origin="ur")
 
         intsct_raster_geom = RasterGeometry.from_extent(bbox, self.sref, self.x_pixel_size,
@@ -809,7 +800,7 @@ class RasterGeometry:
 
         return intsct_raster_geom
 
-    def xy2rc(self, x, y, sref=None, px_origin='ul'):
+    def xy2rc(self, x, y, sref=None, px_origin="ul"):
         """
         Calculates an index of a pixel in which a given point of a world system lies.
 
@@ -844,12 +835,12 @@ class RasterGeometry:
         """
 
         if sref is not None:
-            x, y = coordinate_traffo(x, y, sref, self.sref.osr_sref)
+            x, y = transform_coords(x, y, sref, self.sref.osr_sref)
 
         c, r = xy2ij(x, y, self.geotrans, origin=px_origin)
         return r, c
 
-    def rc2xy(self, r, c, px_origin='ul'):
+    def rc2xy(self, r, c, px_origin="ul"):
         """
         Returns the coordinates of the center or a corner (dependent on ˋpx_originˋ) of a pixel specified
         by a row and column number.
@@ -862,11 +853,11 @@ class RasterGeometry:
             Pixel column number.
         px_origin : str, optional
             Defines the world system origin of the pixel. It can be:
-            - upper left ('ul', default)
-            - upper right ('ur')
-            - lower right ('lr')
-            - lower left ('ll')
-            - center ('c')
+            - upper left ("ul", default)
+            - upper right ("ur")
+            - lower right ("lr")
+            - lower left ("ll")
+            - center ("c")
 
         Returns
         -------
@@ -898,7 +889,8 @@ class RasterGeometry:
         alpha : float, optional
             Opacity of the boundary polygon (default is 1.).
         proj : cartopy.crs, optional
-            Cartopy projection instance defining the projection of the axes.
+            Cartopy projection instance defining the projection of the axes (default is None).
+            If None, the projection of the spatial reference system of the raster geometry is taken.
         show : bool, optional
             If True, the plot result is shown (default is False).
         label_geom : bool, optional
@@ -922,11 +914,15 @@ class RasterGeometry:
             err_msg = "Module 'matplotlib' is mandatory for plotting a RasterGeometry object."
             raise ImportError(err_msg)
 
-        if ax is None:
-            if proj is None:
-                proj = self.to_cartopy_crs()  # TODO: does not work yet
+        this_proj = self.sref.to_cartopy_proj()
+        other_proj = None
+        if proj is None:
+            other_proj = this_proj
+        else:
+            other_proj = proj
 
-            ax = plt.axes(projection=proj)
+        if ax is None:
+            ax = plt.axes(projection=other_proj)
             ax.set_global()
             ax.gridlines()
 
@@ -934,8 +930,8 @@ class RasterGeometry:
             ax.coastlines()
             ax.add_feature(cartopy.feature.BORDERS)
 
-        patch = PolygonPatch(list(self.boundary_shapely().exterior.coords), facecolor=facecolor, alpha=alpha,
-                             transform=proj, zorder=0, edgecolor=edgecolor, linewidth=edgewidth)
+        patch = PolygonPatch(list(self.boundary_shapely.exterior.coords), facecolor=facecolor, alpha=alpha,
+                            zorder=0, edgecolor=edgecolor, linewidth=edgewidth, transform=this_proj)
         ax.add_patch(patch)
 
         if extent is not None:
@@ -943,7 +939,7 @@ class RasterGeometry:
             ax.set_ylim([extent[1], extent[3]])
 
         if self.id is not None and label_geom:
-            transform = proj._as_mpl_transform(ax)
+            transform = this_proj._as_mpl_transform(ax)
             ax.annotate(str(self.id), xy=self.centre, xycoords=transform, va="center", ha="center")
 
         if show:
@@ -1017,7 +1013,7 @@ class RasterGeometry:
         res_raster_geom = None
 
         # first, convert the geometry to a shapely geometry
-        boundary = self.boundary_shapely()
+        boundary = self.boundary_shapely
         # then, rotate the geometry to be axis parallel if it is not axis parallel
         boundary = affinity.rotate(boundary.convex_hull, self.ori*180./np.pi, 'center')
         # loop over all edges
@@ -1025,7 +1021,6 @@ class RasterGeometry:
         for i, buffer_size_i in enumerate(buffer_size):
             if (i == 0) or (i == 2):  # left and right edge
                 if unit == '':
-                    # -1 because 1 is the original size and we need negative values for shrinking a geometry
                     # resize extent (0.5 because buffer size always refers to half the edge length)
                     scale_factor = (buffer_size_i - 1) * 0.5
                 elif unit == 'px':
@@ -1050,20 +1045,22 @@ class RasterGeometry:
         max_x = max(x_coords)
         max_y = max(y_coords)
 
-        res_min_x = min_x - self.width * scale_factors[0]
-        res_min_y = min_y - self.height * scale_factors[3]
-        res_max_x = max_x + self.width * scale_factors[2]
-        res_max_y = max_y + self.height * scale_factors[1]
+        res_min_x = min_x - self.x_size * scale_factors[0]
+        res_min_y = min_y - self.y_size * scale_factors[3]
+        res_max_x = max_x + self.x_size * scale_factors[2]
+        res_max_y = max_y + self.y_size * scale_factors[1]
 
-        # create new boundary geometry (counter-clockwise) and rotate it back
+        # create new boundary geometry (clockwise) and rotate it back
         new_boundary_geom = Polygon(((res_min_x, res_min_y),
-                                    (res_max_x, res_min_y),
-                                    (res_max_x, res_max_y),
                                     (res_min_x, res_max_y),
+                                    (res_max_x, res_max_y),
+                                    (res_max_x, res_min_y),
                                     (res_min_x, res_min_y)))
         new_boundary_geom = affinity.rotate(new_boundary_geom, -self.ori*180./np.pi, 'center')
+        new_boundary_geom = ogr.CreateGeometryFromWkt(new_boundary_geom.wkt)
+        new_boundary_geom.AssignSpatialReference(self.sref.osr_sref)
 
-        res_raster_geom = RasterGeometry.from_geometry(new_boundary_geom, self.x_pixel_size, self.y_pixel_size, self.sref,
+        res_raster_geom = RasterGeometry.from_geometry(new_boundary_geom, self.x_pixel_size, self.y_pixel_size,
                                                        geom_id=self.id, description=self.description,
                                                        px_origin=self.px_origin, parent=self)
 
@@ -1112,7 +1109,7 @@ class RasterGeometry:
 
         return min_row, min_col, max_row, max_col
 
-    @_align_geom
+    @_align_geom(align=False)
     def __contains__(self, geom):
         """
         Checks whether a given geometry is contained in the raster geometry.
@@ -1176,7 +1173,7 @@ class RasterGeometry:
 
         return not self == other
 
-    @_align_geom
+    @_align_geom(align=False)
     def __and__(self, other):
         """
         AND operation intersects both raster geometries.
@@ -1199,10 +1196,10 @@ class RasterGeometry:
 
         return self.intersection_by_geom(other, inplace=False)
 
-    def __repr__(self):
+    def __str__(self):
         """ str : String representation of a raster geometry as a Well Known Text (WKT) string. """
 
-        return self.boundary_wkt()
+        return self.boundary_wkt
 
     def __getitem__(self, item):
         """
@@ -1239,14 +1236,14 @@ class RasterGeometry:
             max_s_idx = item[1]
 
         if len(item) == 2:
-            height = max_f_idx - min_f_idx + 1
-            width = max_s_idx - min_s_idx + 1
-            intsct_raster_geom = self.slice(min_f_idx, min_s_idx, height, width)
+            height = max_f_idx - min_f_idx
+            width = max_s_idx - min_s_idx
+            intsct_raster_geom = self.slice(min_f_idx, min_s_idx, height, width, inplace=False)
         elif len(item) == 3:
             sref = item[2]
-            extent = [(min_f_idx, min_s_idx), (max_f_idx, max_s_idx)]
-            boundary = bbox_to_polygon(extent, sref)
-            intsct_raster_geom = self.intersection_by_geom(boundary)
+            extent = [min_f_idx, min_s_idx, max_f_idx, max_s_idx]
+            intsct_raster_geom = self.from_extent(extent, sref, self.x_pixel_size, self.y_pixel_size,
+                                                  geom_id=self.id, description=self.description, parent=self)
         else:
             err_msg = "The given way of indexing is not supported. Only two (pixel) or " \
                       "three (coordinates) indexes are supported."

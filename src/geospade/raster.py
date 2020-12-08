@@ -25,149 +25,6 @@ from geospade.crs import SpatialRef
 from geospade import DECIMALS
 
 
-def rasterise_polygon(geom, x_pixel_size, y_pixel_size, buffer=0):
-    """
-    Rasterises a polygon defined by clockwise list of points with the edge-flag algorithm.
-
-    Parameters
-    ----------
-    geom : ogr.Geometry
-        Clockwise list of x and y coordinates defining a polygon.
-    x_pixel_size : float
-            Absolute pixel size in X direction.
-    y_pixel_size : float
-        Absolute pixel size in Y direction.
-    buffer : int, optional
-            Pixel buffer for crop geometry (default is 0).
-
-    Returns
-    -------
-    raster : np.array
-        Binary array where zeros are background pixels and ones are foreground (polygon) pixels.
-
-    Notes
-    -----
-    The edge-flag algorithm was partly taken from https://de.wikipedia.org/wiki/Rasterung_von_Polygonen
-
-    """
-
-    # create raster geometry from the given geometry
-    raster_geom = RasterGeometry.from_geometry(geom, x_pixel_size=x_pixel_size, y_pixel_size=y_pixel_size)
-
-    # extract and align coordinates of the polygon
-    geom_coords = list(shapely.wkt.loads(geom.ExportToWkt()).exterior.coords)
-    px_coords = [raster_geom.xy2rc(geom_coord[0], geom_coord[2], px_origin='ul')
-                 for geom_coord in geom_coords]
-    cntr_geom_coords = [raster_geom.rc2xy(px_coord[0], px_coord[1], px_origin='c')
-                        for px_coord in px_coords]
-    xs, ys = list(zip(*cntr_geom_coords))
-
-    # create raster for storing the rasterised polygon pixels
-    raster = np.zeros((raster_geom.height, raster_geom.width), np.uint8)
-
-    # first, draw contour of polygon
-    for idx in range(1, len(xs)):  # loop over all points of the polygon
-        x_1 = xs[idx - 1]
-        x_2 = xs[idx]
-        y_1 = ys[idx - 1]
-        y_2 = ys[idx]
-        x_diff = x_2 - x_1
-        y_diff = y_2 - y_1
-        if y_diff == 0.:  # horizontal line (will be filled later on)
-            continue
-
-        k = y_diff / float(x_diff) if x_diff != 0. else None  # slope is None if the line is vertical
-
-        # define start, end and iterator y coordinate and start x coordinate
-        if y_1 < y_2:
-            y_start = y_1
-            y_end = y_2
-            x_start = x_1
-            y = y_1
-        else:
-            y_start = y_2
-            y_end = y_1
-            x_start = x_2
-            y = y_2
-
-        while y <= y_end:  # iterate along polyline
-            if k is not None:
-                x = (y - y_start)/k + x_start   # compute x coordinate depending on y coordinate
-            else:  # vertical -> x coordinate does not change
-                x = x_start
-
-            # compute raster indexes
-            r, c = raster_geom.xy2rc(x, y, px_origin='c')
-            raster[r, c] = 1
-            y = y + y_pixel_size  # increase y in steps of 'sres'
-
-    # loop over rows and fill raster from left to right
-    for i in range(raster_geom.height):
-        is_inner = False
-        if sum(raster[i, :]) < 2:  # if there is only one contour point in a line (e.g. spike of a polygon), continue
-            continue
-
-        for j in range(raster_geom.width):
-            if raster[i, j]:
-                is_inner = ~is_inner
-            if is_inner:
-                raster[i, j] = 1
-
-    # if buffer != 0.:
-    #     kernel = np.ones((3, 3), np.uint8)
-    #     raster = cv2.erode(raster, kernel, iterations=buffer)
-    #     raster = raster[buffer:-buffer, buffer:-buffer]
-
-    return raster
-
-
-def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px'):
-    """
-    Computes extent in relative pixels or world system coordinates with respect to an origin/reference point for
-    the upper left corner.
-
-    Parameters
-    ----------
-    origin : tuple
-        World system coordinates (X, Y) or pixel coordinates (column, row) of the origin/reference point.
-    extent : 4-tuple
-        Coordinate (min_x, min_y, max_x, max_y) or pixel extent (min_col, min_row, max_col, max_row).
-    x_pixel_size : float
-            Absolute pixel size in X direction.
-    y_pixel_size : float
-        Absolute pixel size in Y direction.
-    unit : string, optional
-        Unit of the relative coordinates.
-        Possible values are:
-            'px':  Relative coordinates are returned as the number of pixels.
-            'sr':  Relative coordinates are returned as spatial reference units (meters/degrees).
-
-    Returns
-    -------
-    4-tuple of numbers
-        Relative position of the given extent with respect to an origin.
-        The extent values are dependent on the unit:
-            'px' : (min_col, min_row, max_col, max_row)
-            'sr' : (min_x, min_y, max_x, max_y)
-
-    """
-
-    rel_extent = (extent[0] - origin[0],
-                  extent[1] - origin[1],
-                  extent[2] - origin[0],
-                  extent[3] - origin[1])
-    if unit == 'sr':
-        return rel_extent
-    elif unit == 'px':
-        return np.around(rel_extent[0] / x_pixel_size, decimals=DECIMALS).astype(int),\
-               np.around(rel_extent[3] / y_pixel_size, decimals=DECIMALS).astype(int),\
-               np.around(rel_extent[2] / x_pixel_size, decimals=DECIMALS).astype(int),\
-               np.around(rel_extent[1] / y_pixel_size, decimals=DECIMALS).astype(int)
-    else:
-        err_msg = "Unit {} is unknown. Please use 'px' or 'sr'."
-        raise Exception(err_msg.format(unit))
-
-
 def _align_geom(align=False):
     """
     A decorator which checks if a spatial reference is available for an `OGR.geometry` object and optionally reprojects
@@ -655,6 +512,35 @@ class RasterGeometry:
         """ shapely.geometry.Polygon : Boundary of the raster geometry represented as a Shapely polygon. """
         return shapely.wkt.loads(self.boundary.ExportToWkt())
 
+    def is_raster_coord(self, x, y, sref=None):
+        """
+        Checks if a point in the world system exactly lies on the raster grid spanned by the raster geometry.
+
+        Parameters
+        ----------
+        x : float
+            World system coordinate in x direction.
+        y : float
+            World system coordinate in y direction.
+        sref : SpatialRef, optional
+            Spatial reference of the coordinates. Has to be given if the spatial
+            reference is different than the spatial reference of the raster geometry.
+
+        Returns
+        -------
+        bool :
+            True if the specified x and y coordinates are located on the grid.
+
+        """
+
+        if sref is not None:
+            x, y = transform_coords(x, y, sref, self.sref.osr_sref)
+
+        x_is_on_grid = (x % self.x_pixel_size) <= (10**-DECIMALS)
+        y_is_on_grid = (y % self.y_pixel_size) <= (10**-DECIMALS)
+
+        return x_is_on_grid & y_is_on_grid
+
     @_align_geom(align=True)
     def intersects(self, other):
         """
@@ -710,7 +596,7 @@ class RasterGeometry:
         return other.Within(self.boundary)
 
     @_align_geom(align=True)
-    def intersection_by_geom(self, other, snap_to_grid=True, inplace=False):
+    def slice_by_geom(self, other, snap_to_grid=True, inplace=False):
         """
         Computes an intersection figure of two geometries and returns its
         (grid axes-parallel rectangle) bounding box as a raster geometry.
@@ -739,10 +625,11 @@ class RasterGeometry:
         intersection = self.boundary.Intersection(other)
         bbox = np.around(intersection.GetEnvelope(), decimals=DECIMALS)
         if snap_to_grid:
-            ll_px = self.xy2rc(bbox[0], bbox[2], px_origin="ul")
-            ur_px = self.xy2rc(bbox[1], bbox[3], px_origin="ul")
-            bbox = self.rc2xy(*ll_px, px_origin="ll") + self.rc2xy(*ur_px, px_origin="ur")
+            new_ll_x, new_ll_y = self.snap_to_grid(bbox[0], bbox[2], px_origin="ll")
+            new_ur_x, new_ur_y = self.snap_to_grid(bbox[1], bbox[3], px_origin="ur")
+            bbox = [new_ll_x, new_ur_x, new_ll_y, new_ur_y]
 
+        bbox = [bbox[0], bbox[2], bbox[1], bbox[3]]
         intsct_raster_geom = RasterGeometry.from_extent(bbox, self.sref, self.x_pixel_size,
                                                         self.y_pixel_size, geom_id=self.id,
                                                         description=self.description, parent=self)
@@ -756,7 +643,7 @@ class RasterGeometry:
 
         return intsct_raster_geom
 
-    def slice(self, row, col, height=1, width=1, inplace=False):
+    def slice_by_rc(self, row, col, height=1, width=1, inplace=False):
         """
         Intersects raster geometry with a pixel extent.
 
@@ -870,6 +757,43 @@ class RasterGeometry:
 
         px_origin = self.px_origin if px_origin is None else px_origin
         return ij2xy(c, r, self.geotrans, origin=px_origin)
+
+    def snap_to_grid(self, x, y, sref=None, px_origin="ul"):
+        """
+        Rounds the given world system coordinates `x` and `y` to a coordinate point of the grid spanned by the
+        raster geometry. The coordinate anchor specified by `px_origin` is then returned.
+
+        Parameters
+        ----------
+        x : float
+            World system coordinate in x direction.
+        y : float
+            World system coordinate in y direction.
+        sref : SpatialRef, optional
+            Spatial reference of the coordinates. Has to be given if the spatial
+            reference is different than the spatial reference of the raster geometry.
+        px_origin : str, optional
+            Defines the world system origin of the pixel. It can be:
+            - upper left ("ul", default)
+            - upper right ("ur")
+            - lower right ("lr")
+            - lower left ("ll")
+            - center ("c")
+
+        Returns
+        -------
+        new_x : float
+            Raster geometry grid coordinate in x direction related to the origin defined by `px_origin`.
+        new_y : float
+            Raster geometry grid coordinate in y direction related to the origin defined by `px_origin`.
+
+        """
+        new_x, new_y = x, y
+        if not self.is_raster_coord(x, y, sref=sref):
+            row, col = self.xy2rc(x, y, sref=sref, px_origin="ul")
+            new_x, new_y = self.rc2xy(row, col, px_origin=px_origin)
+
+        return new_x, new_y
 
     def plot(self, ax=None, facecolor='tab:red', edgecolor='black', edgewidth=1, alpha=1., proj=None,
              show=False, label_geom=False, add_country_borders=True, extent=None):
@@ -1024,16 +948,16 @@ class RasterGeometry:
                     # resize extent (0.5 because buffer size always refers to half the edge length)
                     scale_factor = (buffer_size_i - 1) * 0.5
                 elif unit == 'px':
-                    scale_factor = buffer_size_i/float(self.n_cols)
-                else:
                     scale_factor = buffer_size_i/float(self.width)
+                else:
+                    scale_factor = buffer_size_i/float(self.x_size)
             else:
                 if unit == '':
                     scale_factor = (buffer_size_i - 1) * 0.5
                 elif unit == 'px':
-                    scale_factor = buffer_size_i/float(self.n_rows)
-                else:
                     scale_factor = buffer_size_i/float(self.height)
+                else:
+                    scale_factor = buffer_size_i/float(self.y_size)
 
             scale_factors.append(scale_factor)
 
@@ -1194,7 +1118,7 @@ class RasterGeometry:
             err_msg = "The spatial reference systems are not equal."
             raise ValueError(err_msg)
 
-        return self.intersection_by_geom(other, inplace=False)
+        return self.slice_by_geom(other, inplace=False)
 
     def __str__(self):
         """ str : String representation of a raster geometry as a Well Known Text (WKT) string. """
@@ -1236,12 +1160,12 @@ class RasterGeometry:
             max_s_idx = item[1]
 
         if len(item) == 2:
-            height = max_f_idx - min_f_idx
-            width = max_s_idx - min_s_idx
-            intsct_raster_geom = self.slice(min_f_idx, min_s_idx, height, width, inplace=False)
+            height = max_f_idx - min_f_idx - 1
+            width = max_s_idx - min_s_idx - 1
+            intsct_raster_geom = self.slice_by_rc(min_f_idx, min_s_idx, height, width, inplace=False)
         elif len(item) == 3:
             sref = item[2]
-            extent = [min_f_idx, min_s_idx, max_f_idx, max_s_idx]
+            extent = [min_f_idx, min_s_idx, max_f_idx - self.x_pixel_size, max_s_idx - self.y_pixel_size]
             intsct_raster_geom = self.from_extent(extent, sref, self.x_pixel_size, self.y_pixel_size,
                                                   geom_id=self.id, description=self.description, parent=self)
         else:
@@ -1302,7 +1226,7 @@ class MosaicGeometry:
     @property
     def geotrans(self):
         """ 6-tuple : Returns the GDAL geotransform parameters of the mosaic. """
-        return self.tiles['tile'][0].geotrans
+        return self.geom.geotrans
 
     @property
     def sref(self):
@@ -1349,7 +1273,7 @@ class MosaicGeometry:
 
         """
         tile_ids = [raster_geom.id for raster_geom in raster_geoms]
-        boundaries = [raster_geom.boundary_shapely() for raster_geom in raster_geoms]
+        boundaries = [raster_geom.boundary_shapely for raster_geom in raster_geoms]
         tiles = geopd.GeoDataFrame({'tile': raster_geoms, 'geometry': boundaries},
                                    index=tile_ids, crs=raster_geoms[0].sref.proj4)
 
@@ -1458,12 +1382,12 @@ class MosaicGeometry:
 
         if not self.geom.intersects(geom):
             wrn_msg = "Geometry does not intersect with raster grid."
-            warnings.warn(wrn_msg)  # TODO: should an error be raised?
+            warnings.warn(wrn_msg)
         else:
             intersct_mosaic_geom = None
             idxs = self.tiles.intersects(shapely.wkt.loads(geom.ExportToWkt()))
             tiles = copy.deepcopy(self.tiles[idxs])
-            intersection = lambda x: x.intersection_by_geom(geom, snap_to_grid, inplace)
+            intersection = lambda x: x.slice_by_geom(geom, snap_to_grid, inplace)
             boundary = lambda x: shapely.wkt.loads(x.boundary.ExportToWkt())
             tiles['tile'] = tiles['tile'].apply(intersection)
             tiles['geometry'] = tiles['tile'].apply(boundary)

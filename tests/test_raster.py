@@ -94,13 +94,13 @@ class RasterGeometryTest(unittest.TestCase):
         """ Tests accessing of parent `RasterData` objects. """
 
         raster_geom_scaled = self.raster_geom.scale(0.5, inplace=False)
-        raster_geom_intsct = self.raster_geom.intersection_by_geom(raster_geom_scaled, inplace=False)
+        raster_geom_intsct = self.raster_geom.slice_by_geom(raster_geom_scaled, inplace=False)
 
         assert raster_geom_intsct.parent == self.raster_geom
 
         # tests finding the parent root
         raster_geom_scaled = raster_geom_scaled.scale(0.5, inplace=False)
-        raster_geom_intsct = raster_geom_intsct.intersection_by_geom(raster_geom_scaled, inplace=False)
+        raster_geom_intsct = raster_geom_intsct.slice_by_geom(raster_geom_scaled, inplace=False)
 
         assert raster_geom_intsct.parent_root == self.raster_geom
 
@@ -184,12 +184,12 @@ class RasterGeometryTest(unittest.TestCase):
         """ Test intersection with different geometries. """
 
         # test intersection with own geometry
-        raster_geom_intsct = self.raster_geom.intersection_by_geom(self.raster_geom.boundary, inplace=False)
+        raster_geom_intsct = self.raster_geom.slice_by_geom(self.raster_geom.boundary, inplace=False)
         assert self.raster_geom == raster_geom_intsct
 
         # test intersection with scaled geometry
         raster_geom_scaled = self.raster_geom.scale(0.5, inplace=False)
-        raster_geom_intsct = self.raster_geom.intersection_by_geom(raster_geom_scaled, inplace=False)
+        raster_geom_intsct = self.raster_geom.slice_by_geom(raster_geom_scaled, inplace=False)
 
         assert raster_geom_scaled == raster_geom_intsct
 
@@ -198,7 +198,7 @@ class RasterGeometryTest(unittest.TestCase):
         extent_intsct = (extent_shifted[0], extent_shifted[1], self.extent[2], self.extent[3])
         raster_geom_shifted = RasterGeometry.from_extent(extent_shifted, self.sref,
                                                          self.x_pixel_size, self.y_pixel_size)
-        raster_geom_intsct = self.raster_geom.intersection_by_geom(raster_geom_shifted, inplace=False)
+        raster_geom_intsct = self.raster_geom.slice_by_geom(raster_geom_shifted, inplace=False)
 
         assert raster_geom_intsct.outer_boundary_extent == extent_intsct
 
@@ -207,7 +207,7 @@ class RasterGeometryTest(unittest.TestCase):
                           self.extent[2] + 5., self.extent[3] + 5.)
         raster_geom_no_ovlp = RasterGeometry.from_extent(extent_no_ovlp, self.sref,
                                                          self.x_pixel_size, self.y_pixel_size)
-        raster_geom_intsct = self.raster_geom.intersection_by_geom(raster_geom_no_ovlp, inplace=False)
+        raster_geom_intsct = self.raster_geom.slice_by_geom(raster_geom_no_ovlp, inplace=False)
 
         assert raster_geom_intsct is None
 
@@ -218,11 +218,11 @@ class RasterGeometryTest(unittest.TestCase):
         raster_geom_reszd = self.raster_geom.resize(-abs(self.x_pixel_size)/5., unit='sr', inplace=False)
 
         # execute intersection with 'snap_to_grid=True'
-        raster_geom_intsct = self.raster_geom.intersection_by_geom(raster_geom_reszd, snap_to_grid=True, inplace=False)
+        raster_geom_intsct = self.raster_geom.slice_by_geom(raster_geom_reszd, snap_to_grid=True, inplace=False)
         assert raster_geom_intsct == self.raster_geom
 
         # execute intersection with 'snap_to_grid=False'
-        raster_geom_intsct = self.raster_geom.intersection_by_geom(raster_geom_reszd, snap_to_grid=False, inplace=False)
+        raster_geom_intsct = self.raster_geom.slice_by_geom(raster_geom_reszd, snap_to_grid=False, inplace=False)
         assert raster_geom_intsct != self.raster_geom
 
     def test_touches(self):
@@ -256,18 +256,17 @@ class RasterGeometryTest(unittest.TestCase):
     def test_plot(self):
         """ Tests plotting function of a raster geometry. """
 
-        self.raster_geom.plot(add_country_borders=True, show=True)
+        self.raster_geom.plot(add_country_borders=True)
 
         # test plotting with labelling and different output projection
         self.raster_geom.id = "E048N018T1"
-        self.raster_geom.plot(proj=ccrs.EckertI(), label_geom=True, add_country_borders=True,
-                              show=True)
+        self.raster_geom.plot(proj=ccrs.EckertI(), label_geom=True, add_country_borders=True)
 
         # test plotting with different input projection
         sref = SpatialRef(31259)
         extent = [527798, 94878, 956835, 535687]
         raster_geom = RasterGeometry.from_extent(extent, sref, x_pixel_size=500, y_pixel_size=500)
-        raster_geom.plot(add_country_borders=True, show=True)
+        raster_geom.plot(add_country_borders=True)
 
     def test_scale(self):
         """ Tests scaling of a raster geometry. """
@@ -365,111 +364,113 @@ class RasterGeometryTest(unittest.TestCase):
         raster_geom_enlrgd = self.raster_geom.scale(2., inplace=False)
         assert raster_geom_enlrgd not in self.raster_geom
 
-    # TODO: how should the upper index boundary be parsed, + 1?
     def test_indexing(self):
         """ Tests `__get_item__` method, which is used for intersecting a raster geometry. """
 
         # test indexing with coordinates
         raster_geom_scaled = self.raster_geom.scale(0.5, inplace=False)
         (ll_x, ll_y, ur_x, ur_y) = raster_geom_scaled.outer_boundary_extent
-        raster_geom_intsctd = self.raster_geom[ll_x:ur_x, ll_y:ur_y, self.raster_geom.sref]
+        outer_ur_x = ur_x + self.x_pixel_size
+        outer_ur_y = ur_y + self.y_pixel_size
+        raster_geom_intsctd = self.raster_geom[ll_x:outer_ur_x, ll_y:outer_ur_y, self.raster_geom.sref]
         assert raster_geom_scaled == raster_geom_intsctd
 
         # test indexing with pixel slicing
         max_row, min_col = self.raster_geom.xy2rc(ll_x, ll_y)
         min_row, max_col = self.raster_geom.xy2rc(ur_x, ur_y)
-        raster_geom_intsctd = self.raster_geom[min_row:max_row, min_col:max_col]
+        outer_max_row = max_row + 1
+        outer_max_col = max_col + 1
+        raster_geom_intsctd = self.raster_geom[min_row:outer_max_row, min_col:outer_max_col]
         assert raster_geom_scaled == raster_geom_intsctd
 
 
-class MosaicGeoemtryTest(unittest.TestCase):
-    """ Tests functionality of `MosaicGeometry`. """
-
-    def setUp(self):
-        """
-        Sets up a `RasterGrid` object.
-        It is defined by 3x3 raster geometries/tiles in a LatLon projection.
-        """
-
-        x_pixel_size = 0.01
-        y_pixel_size = -0.01
-        grid_rows = 3
-        grid_cols = 3
-        grid_ul_x = 0.
-        grid_ul_y = 60. + y_pixel_size  # ll pixel coordinate of ul grid coordinate
-        rows = 1600
-        cols = 1600
-
-        sref = SpatialRef(4326)
-
-        roi_x_min = grid_ul_x + cols/2.*x_pixel_size
-        roi_y_max = grid_ul_y + rows/2.*y_pixel_size
-        roi_x_max = roi_x_min + cols*x_pixel_size
-        roi_y_min = roi_y_max + rows * y_pixel_size
-        self.roi = [(roi_x_min, roi_y_min), (roi_x_max, roi_y_max)]
-
-        raster_geoms = []
-        for grid_row in range(grid_rows):
-            for grid_col in range(grid_cols):
-                ul_x = grid_ul_x + grid_col*cols*x_pixel_size
-                ul_y = grid_ul_y + grid_row*rows*y_pixel_size
-                gt = (ul_x, x_pixel_size, 0, ul_y, 0, y_pixel_size)
-                tile_id = "S{:02d}W{:02d}".format(grid_row, grid_col)
-                raster_geom = RasterGeometry(rows, cols, sref, geotrans=gt, geom_id=tile_id)
-                raster_geoms.append(raster_geom)
-
-        self.raster_grid = MosaicGeometry(raster_geoms)
-
-    def test_tile_from_id(self):
-        """ Tests retrieval of `RasterGeometry` tile by a given ID. """
-
-        tile = self.raster_grid.tile_from_id("S01W01")
-        assert tile.id == "S01W01"
-
-    def test_neighbours(self):
-        """  Tests retrieval of neighbouring tiles. """
-
-        # tile situated in the center of the raster grid
-        neighbours = self.raster_grid.neighbours_from_id("S01W01")
-        neighbours_id = sorted([neighbour.id for neighbour in neighbours])
-        neighbours_id_should = ["S00W00", "S00W01", "S00W02", "S01W00", "S01W02", "S02W00", "S02W01", "S02W02"]
-
-        self.assertListEqual(neighbours_id, neighbours_id_should)
-
-        # tile situated at the upper-right corner of the raster grid
-        neighbours = self.raster_grid.neighbours_from_id("S00W02")
-        neighbours_id = sorted([neighbour.id for neighbour in neighbours])
-        neighbours_id_should = ["S00W01", "S01W01", "S01W02"]
-
-        self.assertListEqual(neighbours_id, neighbours_id_should)
-
-    def test_intersection_by_geom(self):
-        """ Tests intersection of a geometry with the raster grid. """
-
-        raster_grid_intsct = self.raster_grid.intersection_by_geom(self.roi, inplace=False)
-        assert raster_grid_intsct.tile_ids == ["S00W00", "S00W01", "S01W00", "S01W01"]
-        assert raster_grid_intsct.area == self.raster_grid["S00W00"].area
-
-    def test_plotting(self):
-        """ Tests plotting functionalities of a raster grid. """
-
-        # most simple plot
-        self.raster_grid.plot()
-
-        # test plotting with labelling
-        self.raster_grid.plot(proj=ccrs.PlateCarree(), label_tiles=True)
-
-    def test_indexing(self):
-        """ Tests `__get_item__` method, which is used for intersecting a raster grid or retrieving a tile. """
-
-        # tile id indexing
-        assert self.raster_grid["S01W01"].id == "S01W01"
-
-        # spatial indexing
-        extent_should = (self.roi[0][0], self.roi[0][1], self.roi[1][0], self.roi[1][1])
-        raster_grid_intsct = self.raster_grid[extent_should[0]:extent_should[2], extent_should[1]:extent_should[3]]
-
-        self.assertTupleEqual(raster_grid_intsct.outer_extent, extent_should)
+# class MosaicGeoemtryTest(unittest.TestCase):
+#     """ Tests functionality of `MosaicGeometry`. """
+#
+#     def setUp(self):
+#         """
+#         Sets up a `MosaicGeometry` object.
+#
+#         """
+#         # define spatial reference
+#         sref = SpatialRef(4326)
+#         # define pixel spacing
+#         x_pixel_size = 0.01
+#         y_pixel_size = 0.01
+#
+#         # define width and height of each tile (randomly)
+#         tile_height = random.randint(30, 3000)
+#         tile_width = random.randint(30, 3000)
+#         # define origin and number of tiles (randomly)
+#         mosaic_ul_x = random.randrange(-50., 50., 10.)
+#         mosaic_ul_y = random.randrange(-50., 50., 10.)
+#         mosaic_rows = random.randint(2, 6)
+#         mosaic_cols = random.randint(2, 6)
+#
+#         #self.roi = [(roi_x_min, roi_y_min), (roi_x_max, roi_y_max)]
+#
+#         raster_geoms = []
+#         for mosaic_row in range(mosaic_rows):
+#             for mosaic_col in range(mosaic_cols):
+#                 ul_x = mosaic_ul_x + mosaic_col*tile_width*x_pixel_size
+#                 ul_y = mosaic_ul_y - mosaic_row*tile_height*y_pixel_size
+#                 gt = (ul_x, x_pixel_size, 0, ul_y, 0, -y_pixel_size)
+#                 tile_id = "S{:02d}W{:02d}".format(mosaic_row, mosaic_col)
+#                 raster_geom = RasterGeometry(tile_height, tile_width, sref, geotrans=gt, geom_id=tile_id)
+#                 raster_geoms.append(raster_geom)
+#
+#         self.mosaic_geom = MosaicGeometry.from_list(raster_geoms)
+#
+#     def test_tile_from_id(self):
+#         """ Tests retrieval of `RasterGeometry` tile by a given ID. """
+#
+#         tile = self.mosaic_geom.tile_from_id("S01W01")
+#         assert tile.id == "S01W01"
+#
+#     def test_neighbours(self):
+#         """  Tests retrieval of neighbouring tiles. """
+#
+#         # tile situated in the center of the mosaic geometry
+#         neighbours = self.mosaic_geom.neighbours_from_id("S01W01")
+#         neighbours_id = sorted([neighbour.id for neighbour in neighbours])
+#         neighbours_id_should = []
+#
+#         self.assertListEqual(neighbours_id, neighbours_id_should)
+#
+#         # tile situated at the upper-right corner of the raster grid
+#         neighbours = self.raster_grid.neighbours_from_id("S00W02")
+#         neighbours_id = sorted([neighbour.id for neighbour in neighbours])
+#         neighbours_id_should = ["S00W01", "S01W01", "S01W02"]
+#
+#         self.assertListEqual(neighbours_id, neighbours_id_should)
+#
+#     def test_intersection_by_geom(self):
+#         """ Tests intersection of a geometry with the raster grid. """
+#
+#         raster_grid_intsct = self.raster_grid.slice_by_geom(self.roi, inplace=False)
+#         assert raster_grid_intsct.tile_ids == ["S00W00", "S00W01", "S01W00", "S01W01"]
+#         assert raster_grid_intsct.area == self.raster_grid["S00W00"].area
+#
+#     def test_plotting(self):
+#         """ Tests plotting functionalities of a raster grid. """
+#
+#         # most simple plot
+#         self.raster_grid.plot()
+#
+#         # test plotting with labelling
+#         self.raster_grid.plot(proj=ccrs.PlateCarree(), label_tiles=True)
+#
+#     def test_indexing(self):
+#         """ Tests `__get_item__` method, which is used for intersecting a raster grid or retrieving a tile. """
+#
+#         # tile id indexing
+#         assert self.raster_grid["S01W01"].id == "S01W01"
+#
+#         # spatial indexing
+#         extent_should = (self.roi[0][0], self.roi[0][1], self.roi[1][0], self.roi[1][1])
+#         raster_grid_intsct = self.raster_grid[extent_should[0]:extent_should[2], extent_should[1]:extent_should[3]]
+#
+#         self.assertTupleEqual(raster_grid_intsct.outer_extent, extent_should)
 
 
 if __name__ == '__main__':

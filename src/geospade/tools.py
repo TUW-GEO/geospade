@@ -1,5 +1,6 @@
 import ogr
-import shapely
+import cv2
+import shapely.wkt
 import numpy as np
 from copy import deepcopy
 from geospade import DECIMALS
@@ -355,3 +356,173 @@ def _round_geom_coords(geom):
     geometry_out.AddGeometry(rounded_ring)
 
     return geometry_out
+
+
+def rasterise_polygon(geom, x_pixel_size, y_pixel_size, buffer=0):
+    """
+    Rasterises a polygon defined by clockwise list of points with the edge-flag algorithm.
+
+    Parameters
+    ----------
+    geom : ogr.Geometry
+        Clockwise list of x and y coordinates defining a polygon.
+    x_pixel_size : float
+            Absolute pixel size in X direction.
+    y_pixel_size : float
+        Absolute pixel size in Y direction.
+    buffer : int, optional
+            Pixel buffer for crop geometry (default is 0).
+
+    Returns
+    -------
+    raster : np.array
+        Binary array where zeros are background pixels and ones are foreground (polygon) pixels.
+
+    Notes
+    -----
+    The edge-flag algorithm was partly taken from https://de.wikipedia.org/wiki/Rasterung_von_Polygonen
+
+    """
+    raster_buffer = abs(buffer)
+
+    # retrieve polygon points
+    geom_sh = shapely.wkt.loads(geom.ExportToWkt())
+    geom_pts = list(geom_sh.exterior.coords)
+
+    # split tuple points into x and y coordinates
+    xs, ys = list(zip(*geom_pts))
+
+    # round coordinates to lowest corner
+    xs = [int(x / x_pixel_size) * x_pixel_size for x in xs]
+    ys = [int(y / y_pixel_size) * y_pixel_size for y in ys]
+
+    # define extent of the polygon
+    x_min = min(xs)
+    x_max = max(xs)
+    y_min = min(ys)
+    y_max = max(ys)
+
+    # number of columns and rows
+    n_rows = int(round((y_max - y_min) / y_pixel_size, DECIMALS) + 2 * raster_buffer) + 1 # +1 to include start and end coordinate
+    n_cols = int(round((x_max - x_min) / x_pixel_size, DECIMALS) + 2 * raster_buffer) + 1 # +1 to include start and end coordinate
+
+    # raster with zeros
+    raster = np.zeros((n_rows, n_cols), np.uint8)
+
+    # pre-compute half pixel sizes used inside loop
+    half_x_pixel_size = np.around(x_pixel_size/2., decimals=DECIMALS)
+    half_y_pixel_size = np.around(y_pixel_size/2., decimals=DECIMALS)
+
+    # first, draw contour of polygon
+    for idx in range(1, len(xs)):  # loop over all points of the polygon
+        x_1 = xs[idx - 1]
+        x_2 = xs[idx]
+        y_1 = ys[idx - 1]
+        y_2 = ys[idx]
+        x_diff = x_2 - x_1
+        y_diff = y_2 - y_1
+        if y_diff == 0.:  # horizontal line (will be filled later on)
+            continue
+
+        k = float(x_diff)/y_diff if x_diff != 0. else None  # slope is None if the line is vertical
+
+        # define start, end and iterator y coordinate and start x coordinate
+        if y_1 < y_2:
+            y_start = y_1
+            y_end = y_2
+            x_start = x_1
+            y = y_1
+        else:
+            y_start = y_2
+            y_end = y_1
+            x_start = x_2
+            y = y_2
+
+        while abs(y - y_end) > 10**(-DECIMALS):  # iterate along polyline
+            y_s = y + half_y_pixel_size
+
+            if k is not None:
+                x_s = np.around((y_s - y_start)*k + x_start, decimals=DECIMALS)   # compute x coordinate depending on y coordinate
+            else:  # vertical -> x coordinate does not change
+                x_s = x_start
+
+            x_floor = int(x_s/x_pixel_size)*x_pixel_size
+            if (x_floor + half_x_pixel_size) <= x_s:
+                x_floor += x_pixel_size
+
+            # compute raster indexes
+            i = int(round(abs(y - y_max) / y_pixel_size, DECIMALS) + raster_buffer)
+            j = int(round(abs(x_floor - x_min) / x_pixel_size, DECIMALS) + raster_buffer)
+            raster[i, j] = ~raster[i, j]
+            y = y + y_pixel_size  # increase y with pixel size
+
+    # loop over rows and fill raster from left to right
+    for i in range(n_rows):
+        is_inner = False
+
+        for j in range(n_cols):
+            if raster[i, j]:
+                is_inner = ~is_inner
+
+            if is_inner:
+                raster[i, j] = 1
+            else:
+                raster[i, j] = 0
+
+    if buffer != 0.:
+        kernel = np.ones((3, 3), np.uint8)
+        if buffer < 0:
+            raster = cv2.erode(raster, kernel, iterations=raster_buffer)
+        elif buffer > 0:
+            raster = cv2.dilate(raster, kernel, iterations=raster_buffer)
+
+        raster = raster[raster_buffer:-raster_buffer, raster_buffer:-raster_buffer]
+
+    return raster
+
+
+def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px'):
+    """
+    Computes extent in relative pixels or world system coordinates with respect to an origin/reference point for
+    the upper left corner.
+
+    Parameters
+    ----------
+    origin : tuple
+        World system coordinates (X, Y) or pixel coordinates (column, row) of the origin/reference point.
+    extent : 4-tuple
+        Coordinate (min_x, min_y, max_x, max_y) or pixel extent (min_col, min_row, max_col, max_row).
+    x_pixel_size : float
+            Absolute pixel size in X direction.
+    y_pixel_size : float
+        Absolute pixel size in Y direction.
+    unit : string, optional
+        Unit of the relative coordinates.
+        Possible values are:
+            'px':  Relative coordinates are returned as the number of pixels.
+            'sr':  Relative coordinates are returned as spatial reference units (meters/degrees).
+
+    Returns
+    -------
+    4-tuple of numbers
+        Relative position of the given extent with respect to an origin.
+        The extent values are dependent on the unit:
+            'px' : (min_col, min_row, max_col, max_row)
+            'sr' : (min_x, min_y, max_x, max_y)
+
+    """
+
+    rel_extent = (extent[0] - origin[0],
+                  extent[1] - origin[1],
+                  extent[2] - origin[0],
+                  extent[3] - origin[1])
+    if unit == 'sr':
+        return rel_extent
+    elif unit == 'px':
+        return np.around(rel_extent[0] / x_pixel_size, decimals=DECIMALS).astype(int),\
+               np.around(rel_extent[3] / y_pixel_size, decimals=DECIMALS).astype(int),\
+               np.around(rel_extent[2] / x_pixel_size, decimals=DECIMALS).astype(int),\
+               np.around(rel_extent[1] / y_pixel_size, decimals=DECIMALS).astype(int)
+    else:
+        err_msg = "Unit {} is unknown. Please use 'px' or 'sr'."
+        raise Exception(err_msg.format(unit))

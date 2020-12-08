@@ -3,8 +3,6 @@ import osr
 import warnings
 from pyproj.crs import CRS
 from cartopy import crs as ccrs
-from shapely.geometry import LineString
-
 
 class SpatialRef:
     """
@@ -154,7 +152,7 @@ class SpatialRef:
 
         """
         ccrs_proj = None
-        if self.epsg is None:  # TODO: should an error be raised?
+        if self.epsg is None:
             wrn_msg = "EPSG is not known, thus no Cartopy projection can be created."
             warnings.warn(wrn_msg)
         elif self.epsg == 4326:

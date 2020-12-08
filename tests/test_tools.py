@@ -1,6 +1,8 @@
 import unittest
 import numpy as np
-from geospade.operation import get_quadrant, rasterise_polygon
+from shapely.geometry import Polygon
+import ogr
+from geospade.tools import get_quadrant, rasterise_polygon
 
 
 class OperationsTest(unittest.TestCase):
@@ -35,18 +37,32 @@ class OperationsTest(unittest.TestCase):
         Tests rasterisation of a polygon.
         """
 
-        ref_raster = [[0, 0, 0, 0, 1, 1, 0, 0],
-                      [0, 0, 0, 1, 1, 1, 0, 0],
-                      [0, 0, 1, 1, 1, 1, 0, 0],
-                      [0, 1, 1, 1, 1, 1, 0, 0],
-                      [1, 1, 1, 1, 1, 1, 1, 0],
-                      [1, 1, 1, 1, 1, 1, 1, 1],
-                      [1, 1, 1, 1, 1, 1, 1, 0],
-                      [1, 1, 1, 1, 1, 1, 0, 0]]
+        ref_raster = np.array([[0, 0, 0, 0, 0, 0, 0, 0],
+                               [0, 0, 0, 0, 1, 0, 0, 0],
+                               [0, 0, 0, 1, 1, 0, 0, 0],
+                               [0, 0, 1, 1, 1, 0, 0, 0],
+                               [0, 1, 1, 1, 1, 1, 0, 0],
+                               [1, 1, 1, 1, 1, 1, 1, 0],
+                               [1, 1, 1, 1, 1, 1, 1, 0],
+                               [1, 1, 1, 1, 1, 1, 0, 0]])
         ref_raster = np.array(ref_raster)
-        polygon = [(1, 1), (1, 4), (5, 8), (6, 8), (6, 5), (8, 3), (6, 1), (1, 1)]
-        raster = rasterise_polygon(polygon)
+        poly_pts = [(1, 1), (1, 4), (5, 8), (6, 8), (6, 5), (8, 3), (6, 1), (1, 1)]
+        geom = ogr.CreateGeometryFromWkt(Polygon(poly_pts).wkt)
+        raster = rasterise_polygon(geom, 1, 1)
 
+        assert np.all(raster == ref_raster)
+
+        ref_raster = np.array([[0, 0, 0, 0, 0, 0, 0, 0],
+                               [1, 0, 0, 0, 0, 0, 0, 0],
+                               [1, 1, 0, 0, 0, 0, 0, 0],
+                               [1, 1, 1, 0, 0, 0, 1, 0],
+                               [1, 1, 1, 1, 0, 1, 1, 0],
+                               [1, 1, 1, 1, 1, 1, 1, 0],
+                               [1, 1, 1, 1, 1, 1, 1, 0]])
+        ref_raster = np.array(ref_raster)
+        poly_pts = [(1, 1), (1, 7), (5, 3), (8, 6), (8, 1), (1, 1)]
+        geom = ogr.CreateGeometryFromWkt(Polygon(poly_pts).wkt)
+        raster = rasterise_polygon(geom, 1, 1)
         assert np.all(raster == ref_raster)
 
     def test_rasterise_polygon_buffer(self):
@@ -54,17 +70,33 @@ class OperationsTest(unittest.TestCase):
         Tests rasterisation with buffering of a polygon.
         """
 
-        ref_raster = [[0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 1, 0, 0, 0],
-                      [0, 0, 0, 1, 1, 0, 0, 0],
-                      [0, 0, 1, 1, 1, 0, 0, 0],
-                      [0, 1, 1, 1, 1, 1, 0, 0],
-                      [0, 1, 1, 1, 1, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0]]
+        ref_raster = np.array([[0, 0, 0, 0, 0, 0, 0, 0],
+                               [0, 0, 0, 0, 0, 0, 0, 0],
+                               [0, 0, 0, 0, 0, 0, 0, 0],
+                               [0, 0, 0, 0, 0, 0, 0, 0],
+                               [0, 0, 0, 1, 0, 0, 0, 0],
+                               [0, 0, 1, 1, 1, 0, 0, 0],
+                               [0, 1, 1, 1, 1, 0, 0, 0],
+                               [0, 0, 0, 0, 0, 0, 0, 0]])
         ref_raster = np.array(ref_raster)
-        polygon = [(1, 1), (1, 4), (5, 8), (6, 8), (6, 5), (8, 3), (6, 1), (1, 1)]
-        raster = rasterise_polygon(polygon, buffer=1)
+        poly_pts = [(1, 1), (1, 4), (5, 8), (6, 8), (6, 5), (8, 3), (6, 1), (1, 1)]
+        geom = ogr.CreateGeometryFromWkt(Polygon(poly_pts).wkt)
+        raster = rasterise_polygon(geom, 1, 1, buffer=-1)
+
+        assert np.all(raster == ref_raster)
+
+        ref_raster = np.array([[0, 0, 0, 1, 1, 1, 0, 0],
+                               [0, 0, 1, 1, 1, 1, 0, 0],
+                               [0, 1, 1, 1, 1, 1, 0, 0],
+                               [1, 1, 1, 1, 1, 1, 1, 0],
+                               [1, 1, 1, 1, 1, 1, 1, 1],
+                               [1, 1, 1, 1, 1, 1, 1, 1],
+                               [1, 1, 1, 1, 1, 1, 1, 1],
+                               [1, 1, 1, 1, 1, 1, 1, 1]])
+        ref_raster = np.array(ref_raster)
+        poly_pts = [(1, 1), (1, 4), (5, 8), (6, 8), (6, 5), (8, 3), (6, 1), (1, 1)]
+        geom = ogr.CreateGeometryFromWkt(Polygon(poly_pts).wkt)
+        raster = rasterise_polygon(geom, 1, 1, buffer=1)
 
         assert np.all(raster == ref_raster)
 

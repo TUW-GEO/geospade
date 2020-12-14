@@ -105,8 +105,8 @@ def ij2xy(i, j, geotrans, origin="ul"):
     j += px_shift[1]
 
     # applying affine model: https://gdal.org/user/raster_data_model.html
-    x = geotrans[0] + i * geotrans[1] + j * geotrans[2]
-    y = geotrans[3] + i * geotrans[4] + j * geotrans[5]
+    x = np.around(geotrans[0] + i * geotrans[1] + j * geotrans[2], decimals=DECIMALS)
+    y = np.around(geotrans[3] + i * geotrans[4] + j * geotrans[5], decimals=DECIMALS)
 
     return x, y
 

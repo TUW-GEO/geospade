@@ -1269,7 +1269,6 @@ class MosaicGeometry(metaclass=abc.ABCMeta):
         return mosaic_geom
 
     @property
-    @abc.abstractmethod
     def tile_ids(self):
         """ list : All tile ID's of the mosaic in alphabetical order. """
         pass
@@ -1313,7 +1312,7 @@ class MosaicGeometry(metaclass=abc.ABCMeta):
         return ax
 
     @staticmethod
-    def create_tile(*args, **kwargs):
+    def _create_tile(*args, **kwargs):
         """
         Initialises a raster geometry.
         This method should be used by child classes to define and initialise their own tile classes.
@@ -1562,10 +1561,9 @@ class MosaicGeometry(metaclass=abc.ABCMeta):
         return ret_geom
 
 
-# TODO: create_tile method or class passing?
-class RegularMosaicGeometry(MosaicGeometry):
+class RegularMosaicGeometry(IrregularMosaicGeometry):
     """ Represents a regular, homogeneous mosaic of raster geometries/tiles. """
-    def __init__(self, tiles, mosaic_id=None, description="", check_consistency=True, parent=None):
+    def __init__(self, tiles_dict, adjacency_mat, mosaic_id=None, description="", check_consistency=True, parent=None):
         """
         Constructor of `RegularMosaicGeometry` class.
 

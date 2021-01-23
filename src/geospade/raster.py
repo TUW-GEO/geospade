@@ -480,8 +480,8 @@ class RasterGeometry:
         """ np.ndarray : Returns all coordinates in x direction. """
         if self.is_axis_parallel:
             min_x, _ = self.rc2xy(0, 0)
-            max_x, _ = self.rc2xy(0, self.n_cols - 1)
-            return np.arange(min_x, max_x + self.x_pixel_size, self.x_pixel_size)
+            max_x, _ = self.rc2xy(0, self.n_cols)
+            return np.arange(min_x, max_x, self.x_pixel_size)
         else:
             cols = np.array(range(self.n_cols))
             return self.rc2xy(0, cols)[0]
@@ -490,9 +490,9 @@ class RasterGeometry:
     def y_coords(self):
         """ np.ndarray : Returns all coordinates in y direction. """
         if self.is_axis_parallel:
-            _, min_y = self.rc2xy(self.n_rows - 1, 0)
+            _, min_y = self.rc2xy(self.n_rows, 0)
             _, max_y = self.rc2xy(0, 0)
-            return np.arange(max_y, min_y - self.y_pixel_size, -self.y_pixel_size)
+            return np.arange(max_y, min_y, -self.y_pixel_size)
         else:
             rows = np.array(range(self.n_rows))
             return self.rc2xy(rows, 0)[1]
@@ -1225,7 +1225,7 @@ class RasterGeometry:
         return RasterGeometry(n_rows, n_cols, sref, geotrans, geom_id, description, px_origin, parent)
 
 
-class MosaicGeometry(metaclass=abc.ABCMeta):
+class MosaicGeometry:
     """ Represents a mosaic-like collection of `RasterGeometry` objects. """
 
     def __init__(self, tiles, mosaic_id=None, description="", check_consistency=True, parent=None):

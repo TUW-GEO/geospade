@@ -1,4 +1,6 @@
+import os
 import ogr
+import json
 import unittest
 import random
 import shapely
@@ -11,8 +13,8 @@ from shapely.geometry import Polygon
 from geospade.crs import SpatialRef
 from geospade.tools import any_geom2ogr_geom
 from geospade.raster import RasterGeometry
+from geospade.raster import MosaicGeometry
 from geospade.raster import RegularMosaicGeometry
-from geospade.raster import IrregularMosaicGeometry
 
 
 class RasterGeometryTest(unittest.TestCase):
@@ -60,6 +62,15 @@ class RasterGeometryTest(unittest.TestCase):
         raster_geom = RasterGeometry.from_geometry(self.ogr_geom, self.x_pixel_size, self.y_pixel_size)
 
         self.assertListEqual(raster_geom.outer_boundary_corners, list(self.sh_geom.exterior.coords)[:-1])
+
+    def test_from_json(self):
+        """ Tests the creation of a raster geometry from a JSON file containing a raster geometry definition. """
+        tmp_filepath = "raster_geom.json"
+        self.raster_geom.to_json(tmp_filepath)
+
+        raster_geom = RasterGeometry.from_json(tmp_filepath)
+        os.remove(tmp_filepath)
+        assert raster_geom == self.raster_geom
 
     def test_get_common_geom(self):
         """ Tests the creation of an encasing raster geometry from multiple raster geometries. """
@@ -385,102 +396,31 @@ class RasterGeometryTest(unittest.TestCase):
         raster_geom_intsctd = self.raster_geom[min_row:outer_max_row, min_col:outer_max_col]
         assert raster_geom_scaled == raster_geom_intsctd
 
+    def test_to_json(self):
+        """ Tests the creation of a JSON file containing a raster geometry definition. """
+        tmp_filepath = "raster_geom.json"
+        self.raster_geom.to_json(tmp_filepath)
 
-class RegularMosaicGeoemtryTest(unittest.TestCase):
-    """ Tests functionality of `RegularMosaicGeometry`. """
+        with open(tmp_filepath, 'r') as tmp_file:
+            json_dict = json.load(tmp_file)
 
-    def setUp(self):
-        """
-        Sets up a `RegularMosaicGeometry` object.
+        os.remove(tmp_filepath)
 
-        """
-        # define spatial reference
-        sref = SpatialRef(4326)
-        # define pixel spacing
-        x_pixel_size = 0.01
-        y_pixel_size = 0.01
-        # define origin and number of tiles (randomly)
-        mosaic_ul_x = random.randrange(-50., 50., 10.)
-        mosaic_ul_y = random.randrange(-50., 50., 10.)
-        mosaic_rows = 3
-        mosaic_cols = 3
-        x_tile_size = 1.
-        y_tile_size = 1.
-        # define geotrans
-        geotrans = (mosaic_ul_x, x_pixel_size, 0., mosaic_ul_y, 0., -y_pixel_size)
-
-        self.mosaic_geom = RegularMosaicGeometry.from_mosaic_definition(mosaic_rows, mosaic_cols, x_tile_size,
-                                                                        y_tile_size, sref, geotrans=geotrans)
-
-    def test_tile_from_id(self):
-        """ Tests retrieval of a tile in a `RegularMosaicGeometry` instance by a given ID. """
-
-        tile = self.mosaic_geom.id2tile("S001W0001")
-        assert tile.id == "S001W001"
-
-    def test_neighbours(self):
-        """  Tests retrieval of neighbouring tiles. """
-
-        # tile situated in the center of the mosaic geometry
-        neighbours = self.mosaic_geom.get_neighbouring_tiles("S001W001")
-        neighbours_id = sorted([neighbour.id for neighbour in neighbours])
-        neighbours_id_should = sorted(["S000W000", "S001W000", "S002W000", "S000W001",
-                                       "S002W001", "S000W002", "S001W002", "S002W002"])
-
-        self.assertListEqual(neighbours_id, neighbours_id_should)
-
-        # tile situated at the upper-right corner of the mosaic geometry
-        neighbours = self.mosaic_geom.get_neighbouring_tiles("S000W002")
-        neighbours_id = sorted([neighbour.id for neighbour in neighbours])
-        neighbours_id_should = sorted(["S000W001", "S001W001", "S001W002"])
-
-        self.assertListEqual(neighbours_id, neighbours_id_should)
-
-    def test_intersection_by_geom(self):
-        """ Tests intersection of a geometry with the regular mosaic geometry. """
-
-        geom = any_geom2ogr_geom(self._get_roi(), sref=self.mosaic_geom.sref)
-        mosaic_intsct = self.mosaic_geom.slice_by_geom(geom, inplace=False)
-        assert mosaic_intsct.tile_ids == ["S000W000", "S000W001", "S001W000", "S001W001"]
-
-    def test_plotting(self):
-        """ Tests plotting functionality of a regular mosaic geometry """
-
-        # most simple plot
-        self.mosaic_geom.plot(show=False)
-
-        # test plotting with labelling
-        self.mosaic_geom.plot(proj=ccrs.EckertI(), label_tiles=True, show=False)
-
-    def test_indexing(self):
-        """ Tests `__get_item__` method, which is used for intersecting a regular mosaic or retrieving a tile. """
-
-        # tile id indexing
-        assert self.mosaic_geom["S001W001"].id == "S001W001"
-
-        # spatial indexing
-        roi = self._get_roi()
-        outer_ur_x = roi[2] + self.mosaic_geom.x_pixel_size
-        outer_ur_y = roi[3] + self.mosaic_geom.y_pixel_size
-        mosaic_intsct = self.mosaic_geom[roi[0]:outer_ur_x, roi[1]:outer_ur_y, self.mosaic_geom.sref]
-
-        self.assertTupleEqual(mosaic_intsct.outer_boundary_extent, roi)
-
-    def _get_roi(self):
-        """ Helper function for retrieving the region of interest. """
-        ll_tile = self.mosaic_geom["S001W000"]
-        ur_tile = self.mosaic_geom["S000W001"]
-        roi = (ll_tile.centre[0], ll_tile.centre[1], ur_tile.centre[0], ur_tile.centre[1])
-
-        return roi
+        assert json_dict['id'] == self.raster_geom.id
+        assert json_dict['number_of_rows'] == self.raster_geom.n_rows
+        assert json_dict['number_of_columns'] == self.raster_geom.n_cols
+        assert json_dict['spatial_reference'] == self.raster_geom.sref.to_proj4_dict()
+        assert tuple(json_dict['geotransformation']) == self.raster_geom.geotrans
+        assert json_dict['pixel_origin'] == self.raster_geom.px_origin
+        assert json_dict['description'] == self.raster_geom.description
 
 
-class IrregularMosaicGeoemtryTest(unittest.TestCase):
-    """ Tests functionality of `IrregularMosaicGeometry`. """
+class MosaicGeometryTest(unittest.TestCase):
+    """ Tests functionality of `MosaicGeometry`. """
 
     def setUp(self):
         """
-        Sets up a `IrregularMosaicGeometry` object.
+        Sets up a `MosaicGeometry` object.
 
         """
         # define spatial reference
@@ -507,23 +447,39 @@ class IrregularMosaicGeoemtryTest(unittest.TestCase):
         middle_geotrans = (mosaic_ul_x, x_pixel_size, 0., mosaic_ul_y - y_tile_size, 0., -y_pixel_size)
         lower_geotrans = (mosaic_ul_x, x_pixel_size, 0., mosaic_ul_y - 2*y_tile_size, 0., -y_pixel_size)
 
-        upper_mosaic_geom = RegularMosaicGeometry.from_mosaic_definition(mosaic_rows, upper_mosaic_cols, upper_x_tile_size,
-                                                                         y_tile_size, sref, geotrans=upper_geotrans)
-        middle_mosaic_geom = RegularMosaicGeometry.from_mosaic_definition(mosaic_rows, middle_mosaic_cols, middle_x_tile_size,
-                                                                          y_tile_size, sref, geotrans=middle_geotrans)
-        lower_mosaic_geom = RegularMosaicGeometry.from_mosaic_definition(mosaic_rows, lower_mosaic_cols, lower_x_tile_size,
-                                                                         y_tile_size, sref, geotrans=lower_geotrans)
+        upper_mosaic_geom = RegularMosaicGeometry.from_rectangular_definition(mosaic_rows, upper_mosaic_cols,
+                                                                              upper_x_tile_size, y_tile_size,
+                                                                              sref, geotrans=upper_geotrans)
+        middle_mosaic_geom = RegularMosaicGeometry.from_rectangular_definition(mosaic_rows, middle_mosaic_cols,
+                                                                               middle_x_tile_size, y_tile_size,
+                                                                               sref, geotrans=middle_geotrans)
+        lower_mosaic_geom = RegularMosaicGeometry.from_rectangular_definition(mosaic_rows, lower_mosaic_cols,
+                                                                              lower_x_tile_size, y_tile_size,
+                                                                              sref, geotrans=lower_geotrans)
 
         # merge tiles
-        tiles = list(upper_mosaic_geom.tiles.flatten()) + \
-                list(middle_mosaic_geom.tiles.flatten()) + \
-                list(lower_mosaic_geom.tiles.flatten())
+        tiles = upper_mosaic_geom.tiles + middle_mosaic_geom.tiles + lower_mosaic_geom.tiles
 
         # relabel tile IDs
         for i, tile in enumerate(tiles):
             tile.id = i + 1
 
-        self.mosaic_geom = IrregularMosaicGeometry(np.array(tiles))
+        self.mosaic_geom = MosaicGeometry(tiles)
+
+    def test_to_json(self):
+        """ Tests the creation of a JSON file containing a mosaic geometry definition. """
+        tmp_filename = "mosaic_geom"
+        self.mosaic_geom.dump(".", tmp_filename)
+
+        mosaic_geom = MosaicGeometry.load(".", tmp_filename)
+
+        os.remove(tmp_filename + ".json")
+        os.remove(tmp_filename + ".npy")
+
+        assert mosaic_geom.id == self.mosaic_geom.id
+        assert mosaic_geom.description == self.mosaic_geom.description
+        assert mosaic_geom.tile_ids == self.mosaic_geom.tile_ids
+        assert np.all(mosaic_geom._adjacency_matrix == self.mosaic_geom._adjacency_matrix)
 
     def test_tile_from_id(self):
         """ Tests retrieval of a tile in a `IrregularMosaicGeometry` instance by a given ID. """
@@ -552,8 +508,8 @@ class IrregularMosaicGeoemtryTest(unittest.TestCase):
         """ Tests intersection of a geometry with the irregular mosaic geometry. """
 
         geom = any_geom2ogr_geom(self._get_roi(), sref=self.mosaic_geom.sref)
-        mosaic_intsct = self.mosaic_geom.slice_by_geom(geom, inplace=False)
-        assert mosaic_intsct.tile_ids == [1, 2, 3, 6, 7]
+        mosaic_intsct = self.mosaic_geom.slice_by_geom(geom)
+        assert len(mosaic_intsct.tile_ids) == 5
 
     def test_plotting(self):
         """ Tests plotting functionality of an irregular mosaic geometry """
@@ -575,13 +531,117 @@ class IrregularMosaicGeoemtryTest(unittest.TestCase):
         outer_ur_x = roi[2] + self.mosaic_geom.x_pixel_size
         outer_ur_y = roi[3] + self.mosaic_geom.y_pixel_size
         mosaic_intsct = self.mosaic_geom[roi[0]:outer_ur_x, roi[1]:outer_ur_y, self.mosaic_geom.sref]
+        outer_boundary_extent = RasterGeometry.from_raster_geometries(mosaic_intsct.tiles).outer_boundary_extent
+        self.assertTupleEqual(outer_boundary_extent, roi)
 
-        self.assertTupleEqual(mosaic_intsct.outer_boundary_extent, roi)
+    def test_dump_n_load(self):
+        """ Tests dumping a mosaic geometry to and loading it from disk. """
+        tmp_filename = "mosaic_geom"
+        self.mosaic_geom.dump(".", tmp_filename)
+
+        mosaic_geom = MosaicGeometry.load(".", tmp_filename)
+
+        os.remove(tmp_filename + ".json")
+        os.remove(tmp_filename + ".npy")
+
+        assert mosaic_geom.id == self.mosaic_geom.id
+        assert mosaic_geom.description == self.mosaic_geom.description
+        assert mosaic_geom.tile_ids == self.mosaic_geom.tile_ids
+        assert np.all(mosaic_geom._adjacency_matrix == self.mosaic_geom._adjacency_matrix)
 
     def _get_roi(self):
         """ Helper function for retrieving the region of interest. """
         ll_tile = self.mosaic_geom[6]
         ur_tile = self.mosaic_geom[3]
+        roi = (ll_tile.centre[0], ll_tile.centre[1], ur_tile.centre[0], ur_tile.centre[1])
+
+        return roi
+
+
+class RegularMosaicGeometryTest(unittest.TestCase):
+    """ Tests functionality of `RegularMosaicGeometry`. """
+
+    def setUp(self):
+        """
+        Sets up a `RegularMosaicGeometry` object.
+
+        """
+        # define spatial reference
+        sref = SpatialRef(4326)
+        # define pixel spacing
+        x_pixel_size = 0.01
+        y_pixel_size = 0.01
+        # define origin and number of tiles (randomly)
+        mosaic_ul_x = random.randrange(-50., 50., 10.)
+        mosaic_ul_y = random.randrange(-50., 50., 10.)
+        mosaic_rows = 3
+        mosaic_cols = 3
+        x_tile_size = 1.
+        y_tile_size = 1.
+        # define geotrans
+        geotrans = (mosaic_ul_x, x_pixel_size, 0., mosaic_ul_y, 0., -y_pixel_size)
+
+        self.mosaic_geom = RegularMosaicGeometry.from_rectangular_definition(mosaic_rows, mosaic_cols, x_tile_size,
+                                                                             y_tile_size, sref, geotrans=geotrans)
+
+    def test_tile_from_id(self):
+        """ Tests retrieval of a tile in a `RegularMosaicGeometry` instance by a given ID. """
+
+        tile = self.mosaic_geom.id2tile("S001W001")
+        assert tile.id == "S001W001"
+
+    def test_neighbours(self):
+        """  Tests retrieval of neighbouring tiles. """
+
+        # tile situated in the center of the mosaic geometry
+        neighbours = self.mosaic_geom.get_neighbouring_tiles("S001W001")
+        neighbours_id = sorted([neighbour.id for neighbour in neighbours])
+        neighbours_id_should = sorted(["S000W000", "S001W000", "S002W000", "S000W001",
+                                       "S002W001", "S000W002", "S001W002", "S002W002"])
+
+        self.assertListEqual(neighbours_id, neighbours_id_should)
+
+        # tile situated at the upper-right corner of the mosaic geometry
+        neighbours = self.mosaic_geom.get_neighbouring_tiles("S000W002")
+        neighbours_id = sorted([neighbour.id for neighbour in neighbours])
+        neighbours_id_should = sorted(["S000W001", "S001W001", "S001W002"])
+
+        self.assertListEqual(neighbours_id, neighbours_id_should)
+
+    def test_intersection_by_geom(self):
+        """ Tests intersection of a geometry with the regular mosaic geometry. """
+
+        geom = any_geom2ogr_geom(self._get_roi(), sref=self.mosaic_geom.sref)
+        mosaic_intsct = self.mosaic_geom.slice_by_geom(geom)
+        assert len(mosaic_intsct.tile_ids) == 4
+
+    def test_plotting(self):
+        """ Tests plotting functionality of a regular mosaic geometry """
+
+        # most simple plot
+        self.mosaic_geom.plot(show=False)
+
+        # test plotting with labelling
+        self.mosaic_geom.plot(proj=ccrs.EckertI(), label_tiles=True, show=False)
+
+    def test_indexing(self):
+        """ Tests `__get_item__` method, which is used for intersecting a regular mosaic or retrieving a tile. """
+
+        # tile id indexing
+        assert self.mosaic_geom["S001W001"].id == "S001W001"
+
+        # spatial indexing
+        roi = self._get_roi()
+        outer_ur_x = roi[2] + self.mosaic_geom.x_pixel_size
+        outer_ur_y = roi[3] + self.mosaic_geom.y_pixel_size
+        mosaic_intsct = self.mosaic_geom[roi[0]:outer_ur_x, roi[1]:outer_ur_y, self.mosaic_geom.sref]
+        outer_boundary_extent = RasterGeometry.from_raster_geometries(mosaic_intsct.tiles).outer_boundary_extent
+        self.assertTupleEqual(outer_boundary_extent, roi)
+
+    def _get_roi(self):
+        """ Helper function for retrieving the region of interest. """
+        ll_tile = self.mosaic_geom["S001W000"]
+        ur_tile = self.mosaic_geom["S000W001"]
         roi = (ll_tile.centre[0], ll_tile.centre[1], ur_tile.centre[0], ur_tile.centre[1])
 
         return roi

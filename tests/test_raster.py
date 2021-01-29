@@ -466,21 +466,6 @@ class MosaicGeometryTest(unittest.TestCase):
 
         self.mosaic_geom = MosaicGeometry(tiles)
 
-    def test_to_json(self):
-        """ Tests the creation of a JSON file containing a mosaic geometry definition. """
-        tmp_filename = "mosaic_geom"
-        self.mosaic_geom.dump(".", tmp_filename)
-
-        mosaic_geom = MosaicGeometry.load(".", tmp_filename)
-
-        os.remove(tmp_filename + ".json")
-        os.remove(tmp_filename + ".npy")
-
-        assert mosaic_geom.id == self.mosaic_geom.id
-        assert mosaic_geom.description == self.mosaic_geom.description
-        assert mosaic_geom.tile_ids == self.mosaic_geom.tile_ids
-        assert np.all(mosaic_geom._adjacency_matrix == self.mosaic_geom._adjacency_matrix)
-
     def test_tile_from_id(self):
         """ Tests retrieval of a tile in a `IrregularMosaicGeometry` instance by a given ID. """
 
@@ -534,15 +519,14 @@ class MosaicGeometryTest(unittest.TestCase):
         outer_boundary_extent = RasterGeometry.from_raster_geometries(mosaic_intsct.tiles).outer_boundary_extent
         self.assertTupleEqual(outer_boundary_extent, roi)
 
-    def test_dump_n_load(self):
+    def test_to_from_json(self):
         """ Tests dumping a mosaic geometry to and loading it from disk. """
-        tmp_filename = "mosaic_geom"
-        self.mosaic_geom.dump(".", tmp_filename)
+        tmp_filename = "mosaic_geom.json"
+        self.mosaic_geom.to_json(tmp_filename)
 
-        mosaic_geom = MosaicGeometry.load(".", tmp_filename)
+        mosaic_geom = MosaicGeometry.from_json(tmp_filename)
 
-        os.remove(tmp_filename + ".json")
-        os.remove(tmp_filename + ".npy")
+        os.remove(tmp_filename)
 
         assert mosaic_geom.id == self.mosaic_geom.id
         assert mosaic_geom.description == self.mosaic_geom.description

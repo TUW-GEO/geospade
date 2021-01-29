@@ -1330,6 +1330,8 @@ class MosaicGeometry:
     Tiles are not allowed to intersect with each other.
 
     """
+    __type = 'irregular'
+
     def __init__(self, tiles, adjacency_matrix=None, mosaic_id=None, description="", check_consistency=True,
                  parent=None):
         """
@@ -1396,25 +1398,30 @@ class MosaicGeometry:
         return list(self._tiles.values())
 
     @classmethod
-    def from_definition(cls, definition, adjacency_matrix=None, check_consistency=True):
+    def from_definition(cls, definition, check_consistency=True):
         """
 
         Parameters
         ----------
         definition : OrderedDict
             Human-readable definition of a mosaic.
-        adjacency_matrix : np.array, optional
-            Adjacency matrix given as a boolean array defining the direct neighbourhood relationships of the given tiles.
-            It needs have the same size as the given number of tiles. If it is None, an adjacency matrix is created
-            on-the-fly (default).
+        check_consistency : bool, optional
+            If True, the tiles are checked for consistency, i.e. to be non-overlapping (defaults to True).
 
         Returns
         -------
         MosaicGeometry
 
         """
+        mosaic_type = definition['type']
+        if mosaic_type != cls.__type:
+            err_msg = "Mosaic type of definition '{}' does not match expected mosaic type '{}'".format(mosaic_type,
+                                                                                                       cls.__type)
+            raise ValueError(err_msg)
         mosaic_id = definition['id']
         description = definition['description']
+        adjacency_matrix = None if definition['adjacency_matrix'] is None else np.array(definition['adjacency_matrix'])
+
         tiles = []
         for key in definition['tiles'].keys():
             tiles.append(RasterGeometry.from_definition(definition['tiles'][key]))
@@ -1422,35 +1429,31 @@ class MosaicGeometry:
         return cls(np.array(tiles), adjacency_matrix, mosaic_id, description, check_consistency)
 
     @classmethod
-    def load(cls, dirpath, filename, check_consistency=True):
+    def from_json(cls, filepath, check_consistency=True):
         """
         Load mosaic represented by its human-readable definition and adjacency matrix from disk.
 
         Parameters
         ----------
-        dirpath : str
-            Full directory path.
-        filename : str
-            Filename without file type.
+        filepath : str
+            Full JSON file path.
+        check_consistency : bool, optional
+            If True, the tiles are checked for consistency, i.e. to be non-overlapping (defaults to True).
+
 
         Returns
         -------
         MosaicGeometry
 
         """
-        def_filepath = os.path.join(dirpath, os.path.splitext(filename)[0] + ".json")
-        if not os.path.exists(def_filepath):
-            err_msg = "'{}' does not exist.".format(def_filepath)
+
+        if not os.path.exists(filepath):
+            err_msg = "'{}' does not exist.".format(filepath)
             raise FileNotFoundError(err_msg)
-        with open(def_filepath, 'r') as def_file:
+        with open(filepath, 'r') as def_file:
             definition = json.load(def_file)
 
-        matrix_filepath = os.path.join(dirpath, os.path.splitext(filename)[0] + ".npy")
-        adjacency_matrix = None
-        if os.path.exists(matrix_filepath):
-            adjacency_matrix = np.load(matrix_filepath)
-
-        return cls.from_definition(definition, adjacency_matrix, check_consistency)
+        return cls.from_definition(definition, check_consistency)
 
     def xy2id(self, x, y, sref=None):
         """
@@ -1653,29 +1656,26 @@ class MosaicGeometry:
         definition['id'] = self.id
         definition['description'] = self.description
         definition['tiles'] = OrderedDict()
+        definition['type'] = self.__type
+        definition['adjacency_matrix'] = self._adjacency_matrix.tolist()
+
         for i, tile in enumerate(self.tiles):
             definition['tiles'][i] = tile.to_definition()
 
         return definition
 
-    def dump(self, dirpath, filename):
+    def to_json(self, filepath):
         """
         Dumps mosaic represented by its human-readable definition and adjacency matrix to disk.
 
         Parameters
         ----------
-        dirpath : str
-            Full directory path.
-        filename : str
-            Filename without file type.
+        filepath : str
+            Full JSON file path.
 
         """
-        def_filepath = os.path.join(dirpath, os.path.splitext(filename)[0] + ".json")
-        with open(def_filepath, 'w') as def_file:
+        with open(filepath, 'w') as def_file:
             json.dump(self.to_definition(), def_file, indent=4)
-
-        matrix_filepath = os.path.join(dirpath, os.path.splitext(filename)[0] + ".npy")
-        np.save(matrix_filepath, self._adjacency_matrix)
 
     def __build_adjacency_matrix(self, tiles):
         """
@@ -1779,6 +1779,8 @@ class RegularMosaicGeometry(MosaicGeometry):
     overlap or vary in size.
 
     """
+    __type = 'regular'
+
     def __init__(self, tiles, adjacency_matrix=None, mosaic_id=None, description="", check_consistency=True,
                  parent=None):
         """

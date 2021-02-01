@@ -10,3 +10,4 @@ dependencies:
     - shapely
     - opencv
     - nbsphinx
+    - ipykernel

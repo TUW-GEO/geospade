@@ -27,7 +27,7 @@ Contents
 .. toctree::
    :maxdepth: 2
 
-   Spatial Reference <../notebooks/spatial_ref>
+   ../notebooks/spatial_ref
    Raster <raster>
    Vector <vector>
    License <license>

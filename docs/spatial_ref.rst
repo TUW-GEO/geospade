@@ -1,1 +1,0 @@
-.. include:: ../notebooks/spatial_ref.ipynb

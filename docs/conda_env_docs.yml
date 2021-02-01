@@ -8,4 +8,5 @@ dependencies:
     - pyproj
     - cartopy
     - shapely
+    - opencv
     - jupyter-sphinx

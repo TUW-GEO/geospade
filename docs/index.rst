@@ -2,7 +2,7 @@
 geospade
 ========
 
-*geospade* stands for **geosp**atial **a**bstract **d**efinition **e**nvironment.
+*geospade* stands for **geosp**\ atial **a**\ bstract **d**\ efinition **e**\ nvironment.
 It serves as place to define classes and properties of raster and vector geometries and their operations alike.
 On a higher level, abstract definitions should be embedded in a geospatial context to support interaction with other Python packages, e.g. *gdal*, *geopandas* or *xarray*.
 In comparison to these Python packages, *geospade* never touches or writes any geospatial data on disk.
@@ -28,6 +28,8 @@ Contents
    :maxdepth: 2
 
    Spatial Reference <spatial_ref>
+   Raster <raster>
+   Vector <vector>
    License <license>
    Authors <authors>
    Changelog <changelog>

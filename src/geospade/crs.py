@@ -4,6 +4,7 @@ import warnings
 from pyproj.crs import CRS
 from cartopy import crs as ccrs
 
+
 class SpatialRef:
     """
     This class represents any OGC compliant spatial reference system. Internally, the

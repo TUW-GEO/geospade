@@ -1,12 +1,9 @@
 import os
 import sys
-import cv2
 import ogr
 import copy
 import cartopy
-import warnings
 import numpy as np
-import geopandas as geopd
 import shapely
 import json
 from collections import OrderedDict

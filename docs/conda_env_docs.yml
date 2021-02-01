@@ -3,12 +3,9 @@ channels:
     - conda-forge
 dependencies:
     - python=3.7
-    - gdal<=3.0.0
+    - gdal=2.4.3
     - numpy
     - pyproj
     - cartopy
     - shapely
-    - numba
-    - opencv
-    - geopandas
     - jupyter-sphinx

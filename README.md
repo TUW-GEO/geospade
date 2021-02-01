@@ -19,11 +19,11 @@ It aims to solve discrepancies between these representations and to fix issues o
 
 An abstract, geospatial definition of a raster is implemented in `RasterGeometry`. 
 It is constructed by providing a pixel extent (i.e., number of rows and columns), the 6 affine geotransformation parameters and a spatial reference system.
-With this knowledge, one can use a `RasterGeometry` instance to do many operations, e.g. intersect it with geometries, transform between pixel and spatial reference system coordinates, resize it, create a pixel mask... 
+With this knowledge, one can use a `RasterGeometry` instance to do many operations, e.g. intersect it with geometries, transform between pixel and spatial reference system coordinates, resize it, or interact with other raster geometries.
 
 Often, geospatial image data is available in tiled or gridded format due to storage/memory limits. 
-To preserve the spatial relationship for each image, `RasterGrid` can help to apply geospatial operations across image boundaries.
-It represents a simple collection of `RasterGeometry` instances, where each `RasterGeometry` describes the spatial properties of an image.
+To preserve the spatial relationship for each image, `MosaicGeometry` can help to apply geospatial operations across image boundaries.
+It represents a simple collection of `RasterGeometry` instances, where each `RasterGeometry` describes the spatial properties of an image, i.o.w. a tile.
 With this setup, tile relationships and neighbourhoods can be derived.
 
 ## Outlook

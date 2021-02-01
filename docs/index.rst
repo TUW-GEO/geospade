@@ -2,25 +2,23 @@
 geospade
 ========
 
-This is the documentation of **geospade**.
+*geospade* stands for **geosp**atial **a**bstract **d**efinition **e**nvironment.
+It serves as place to define classes and properties of raster and vector geometries and their operations alike.
+On a higher level, abstract definitions should be embedded in a geospatial context to support interaction with other Python packages, e.g. *gdal*, *geopandas* or *xarray*.
+In comparison to these Python packages, *geospade* never touches or writes any geospatial data on disk.
+It is a toolkit for geospatial entities (e.g., points, polygons, ...) and their relationships (e.g., intersection, within, ...) in a spatial reference system (e.g., reprojection, grids, ...).
 
-.. note::
+In *geospade* a geospatial context is given by the spatial reference system class `SpatialRef`, which allows to convert between different spatial reference definitions in Python (e.g., *osr*, *cartopy.crs*, ...) and offers well-known spatial reference system representations, i.e., WKT, PROJ4, and EPSG.
+It aims to solve discrepancies between these representations and to fix issues occurring in lower-level packages, e.g. *gdal*.
 
-    This is the main page of your project's `Sphinx`_ documentation.
-    It is formatted in `reStructuredText`_. Add additional pages
-    by creating rst-files in ``docs`` and adding them to the `toctree`_ below.
-    Use then `references`_ in order to link them from this page, e.g.
-    :ref:`authors` and :ref:`changes`.
+An abstract, geospatial definition of a raster is implemented in `RasterGeometry`.
+It is constructed by providing a pixel extent (i.e., number of rows and columns), the 6 affine geotransformation parameters and a spatial reference system.
+With this knowledge, one can use a `RasterGeometry` instance to do many operations, e.g. intersect it with geometries, transform between pixel and spatial reference system coordinates, resize it or interact with other raster geometries.
 
-    It is also possible to refer to the documentation of other Python packages
-    with the `Python domain syntax`_. By default you can reference the
-    documentation of `Sphinx`_, `Python`_, `NumPy`_, `SciPy`_, `matplotlib`_,
-    `Pandas`_, `Scikit-Learn`_. You can add more by extending the
-    ``intersphinx_mapping`` in your Sphinx's ``conf.py``.
-
-    The pretty useful extension `autodoc`_ is activated by default and lets
-    you include documentation from docstrings. Docstrings can be written in
-    `Google style`_ (recommended!), `NumPy style`_ and `classical style`_.
+Often, geospatial image data is available in tiled or gridded format due to storage/memory limits.
+To preserve the spatial relationship for each image, `MosaicGeometry` can help to apply geospatial operations across image boundaries.
+It represents a simple collection of `RasterGeometry` instances, where each `RasterGeometry` describes the spatial properties of an image, i.o.w. a tile.
+With this setup, tile relationships and neighbourhoods can be derived.
 
 
 Contents
@@ -29,6 +27,7 @@ Contents
 .. toctree::
    :maxdepth: 2
 
+   Spatial Reference <spatial_ref>
    License <license>
    Authors <authors>
    Changelog <changelog>

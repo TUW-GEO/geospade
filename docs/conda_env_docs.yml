@@ -9,4 +9,4 @@ dependencies:
     - cartopy
     - shapely
     - opencv
-    - jupyter-sphinx
+    - nbsphinx

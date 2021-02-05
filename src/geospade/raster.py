@@ -132,9 +132,6 @@ class RasterGeometry:
         self.parent = parent
         self.px_origin = px_origin
 
-        # compute orientation of rectangle
-        self.ori = -np.arctan2(self.geotrans[2], self.geotrans[1])  # radians, usually 0
-
         # compute boundary geometry
         boundary = Polygon(self.outer_boundary_corners)
         boundary_ogr = ogr.CreateGeometryFromWkt(boundary.wkt)
@@ -151,7 +148,8 @@ class RasterGeometry:
         Parameters
         ----------
         extent : tuple or list with 4 entries
-            Coordinates defining extent from lower left to upper right corner.
+            Coordinates defining extent from lower left to upper right corner. This extent and the
+            `outer_boundary_extent` definition are equal.
             (lower left x, lower left y, upper right x, upper right y)
         sref : geospade.spatial_ref.SpatialRef
             Spatial reference of the geometry/extent.
@@ -377,6 +375,14 @@ class RasterGeometry:
         while raster_geom.parent is not None:
             raster_geom = raster_geom.parent
         return raster_geom
+
+    @property
+    def ori(self):
+        """
+        float : Counter-clockwise orientation of the raster geometry in radians with respect to the
+        W-E direction/horizontal.
+        """
+        return -np.arctan2(self.geotrans[2], self.geotrans[1])
 
     @property
     def is_axis_parallel(self):
@@ -641,7 +647,7 @@ class RasterGeometry:
             True if the given geometry is within the raster geometry, false if not.
 
         """
-        return other.Within(self.boundary)
+        return self.boundary.Within(other)
 
     @_align_geom(align=True)
     def overlaps(self, other):
@@ -659,7 +665,7 @@ class RasterGeometry:
             True if the given geometry overlaps the raster geometry, false if not.
 
         """
-        return other.Overlaps(self.boundary)
+        return self.boundary.Overlaps(other)
 
     @_align_geom(align=True)
     def slice_by_geom(self, other, snap_to_grid=True, inplace=False, **kwargs):
@@ -749,7 +755,8 @@ class RasterGeometry:
 
         ul_x, ul_y = self.rc2xy(min_row, min_col, px_origin='ul')
         geotrans = build_geotransform(ul_x, ul_y, self.x_pixel_size, -self.y_pixel_size, 0)
-        intsct_raster_geom = RasterGeometry(height, width, self.sref, geotrans, px_origin='ul',
+        n_rows, n_cols = max_row - min_row + 1, max_col - min_col + 1  # +1 because max_row and max_col are set for Python indexing
+        intsct_raster_geom = RasterGeometry(n_rows, n_cols, self.sref, geotrans, px_origin='ul',
                                             parent=self, **kwargs)
 
         if inplace:
@@ -1172,7 +1179,7 @@ class RasterGeometry:
             err_msg = "The spatial reference systems are not equal."
             raise ValueError(err_msg)
 
-        return self.within(geom)
+        return geom.Within(self.boundary)
 
     def __eq__(self, other):
         """
@@ -1285,7 +1292,7 @@ class RasterGeometry:
                 intsct_raster_geom = self.slice_by_rc(min_f_idx, min_s_idx, height, width, inplace=False)
             elif len(item) == 3:
                 sref = item[2]
-                extent = [min_f_idx, min_s_idx, max_f_idx - self.x_pixel_size, max_s_idx - self.y_pixel_size]
+                extent = [min_f_idx, min_s_idx, max_f_idx, max_s_idx]
                 intsct_raster_geom = self.from_extent(extent, sref, self.x_pixel_size, self.y_pixel_size,
                                                       parent=self)
             else:

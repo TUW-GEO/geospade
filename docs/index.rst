@@ -25,10 +25,11 @@ Contents
 ========
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
 
-   Spatial Reference <spatial_ref>
+   Spatial Reference <notebooks/spatial_ref>
    Raster <raster>
+      Raster Geometry <notebooks/raster_geometry>
    Vector <vector>
    License <license>
    Authors <authors>

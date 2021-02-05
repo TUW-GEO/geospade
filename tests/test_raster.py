@@ -383,17 +383,13 @@ class RasterGeometryTest(unittest.TestCase):
         # test indexing with coordinates
         raster_geom_scaled = self.raster_geom.scale(0.5, inplace=False)
         (ll_x, ll_y, ur_x, ur_y) = raster_geom_scaled.outer_boundary_extent
-        outer_ur_x = ur_x + self.x_pixel_size
-        outer_ur_y = ur_y + self.y_pixel_size
-        raster_geom_intsctd = self.raster_geom[ll_x:outer_ur_x, ll_y:outer_ur_y, self.raster_geom.sref]
+        raster_geom_intsctd = self.raster_geom[ll_x:ur_x, ll_y:ur_y, self.raster_geom.sref]
         assert raster_geom_scaled == raster_geom_intsctd
 
         # test indexing with pixel slicing
         max_row, min_col = self.raster_geom.xy2rc(ll_x, ll_y)
         min_row, max_col = self.raster_geom.xy2rc(ur_x, ur_y)
-        outer_max_row = max_row + 1
-        outer_max_col = max_col + 1
-        raster_geom_intsctd = self.raster_geom[min_row:outer_max_row, min_col:outer_max_col]
+        raster_geom_intsctd = self.raster_geom[min_row:max_row, min_col:max_col]
         assert raster_geom_scaled == raster_geom_intsctd
 
     def test_to_json(self):

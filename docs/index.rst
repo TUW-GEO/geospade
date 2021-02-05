@@ -28,9 +28,8 @@ Contents
    :maxdepth: 3
 
    Spatial Reference <notebooks/spatial_ref>
-   Raster <raster>
-      Raster Geometry <notebooks/raster_geometry>
-   Vector <vector>
+   Raster Geometry <notebooks/raster_geometry>
+   Mosaic Geometry <notebooks/mosaic_geometry>
    License <license>
    Authors <authors>
    Changelog <changelog>

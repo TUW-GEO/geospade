@@ -1641,9 +1641,17 @@ class MosaicGeometry:
 
         """
 
+        if 'matplotlib' in sys.modules:
+            import matplotlib.pyplot as plt
+        else:
+            err_msg = "Module 'matplotlib' is mandatory for plotting a MosaicGeometry object."
+            raise ImportError(err_msg)
+
         for tile in self._tiles.values():
             ax = tile.plot(ax, facecolor, edgecolor, edgewidth, alpha, proj,
-                           show, label_tiles, add_country_borders, extent)
+                           False, label_tiles, add_country_borders, extent)
+        if show:
+            plt.show()
 
         return ax
 

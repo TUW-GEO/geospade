@@ -490,7 +490,17 @@ class MosaicGeometryTest(unittest.TestCase):
 
         geom = any_geom2ogr_geom(self._get_roi(), sref=self.mosaic_geom.sref)
         mosaic_intsct = self.mosaic_geom.slice_by_geom(geom)
-        assert len(mosaic_intsct.tile_ids) == 5
+        outer_boundary_extent = RasterGeometry.from_raster_geometries(mosaic_intsct.tiles).outer_boundary_extent
+        self.assertTupleEqual(outer_boundary_extent, self._get_roi())
+
+    def test_subset_by_geom(self):
+        """ Tests sub-setting a mosaic geometry with another geometry. """
+
+        geom = any_geom2ogr_geom(self._get_roi(), sref=self.mosaic_geom.sref)
+        sub_mosaic = self.mosaic_geom.subset_by_geom(geom)
+
+        assert len(sub_mosaic.tiles) == 5
+        assert sub_mosaic.tile_ids == [1, 2, 6, 3, 7]
 
     def test_plotting(self):
         """ Tests plotting functionality of an irregular mosaic geometry """
@@ -509,11 +519,10 @@ class MosaicGeometryTest(unittest.TestCase):
 
         # spatial indexing
         roi = self._get_roi()
-        outer_ur_x = roi[2] + self.mosaic_geom.x_pixel_size
-        outer_ur_y = roi[3] + self.mosaic_geom.y_pixel_size
+        outer_ur_x = roi[2]
+        outer_ur_y = roi[3]
         mosaic_intsct = self.mosaic_geom[roi[0]:outer_ur_x, roi[1]:outer_ur_y, self.mosaic_geom.sref]
-        outer_boundary_extent = RasterGeometry.from_raster_geometries(mosaic_intsct.tiles).outer_boundary_extent
-        self.assertTupleEqual(outer_boundary_extent, roi)
+        assert len(mosaic_intsct.tiles) == 5
 
     def test_to_from_json(self):
         """ Tests dumping a mosaic geometry to and loading it from disk. """
@@ -593,7 +602,17 @@ class RegularMosaicGeometryTest(unittest.TestCase):
 
         geom = any_geom2ogr_geom(self._get_roi(), sref=self.mosaic_geom.sref)
         mosaic_intsct = self.mosaic_geom.slice_by_geom(geom)
-        assert len(mosaic_intsct.tile_ids) == 4
+        outer_boundary_extent = RasterGeometry.from_raster_geometries(mosaic_intsct.tiles).outer_boundary_extent
+        self.assertTupleEqual(outer_boundary_extent, self._get_roi())
+
+    def test_subset_by_geom(self):
+        """ Tests sub-setting a regular mosaic geometry with another geometry. """
+
+        geom = any_geom2ogr_geom(self._get_roi(), sref=self.mosaic_geom.sref)
+        sub_mosaic = self.mosaic_geom.subset_by_geom(geom)
+
+        assert len(sub_mosaic.tiles) == 4
+        assert sub_mosaic.tile_ids == ['S000W000', 'S000W001', 'S001W000', 'S001W001']
 
     def test_plotting(self):
         """ Tests plotting functionality of a regular mosaic geometry """
@@ -612,11 +631,10 @@ class RegularMosaicGeometryTest(unittest.TestCase):
 
         # spatial indexing
         roi = self._get_roi()
-        outer_ur_x = roi[2] + self.mosaic_geom.x_pixel_size
-        outer_ur_y = roi[3] + self.mosaic_geom.y_pixel_size
+        outer_ur_x = roi[2]
+        outer_ur_y = roi[3]
         mosaic_intsct = self.mosaic_geom[roi[0]:outer_ur_x, roi[1]:outer_ur_y, self.mosaic_geom.sref]
-        outer_boundary_extent = RasterGeometry.from_raster_geometries(mosaic_intsct.tiles).outer_boundary_extent
-        self.assertTupleEqual(outer_boundary_extent, roi)
+        assert len(mosaic_intsct.tiles) == 4
 
     def _get_roi(self):
         """ Helper function for retrieving the region of interest. """

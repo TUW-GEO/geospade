@@ -1555,6 +1555,7 @@ class MosaicGeometry:
 
         return nbr_tiles
 
+    @_align_geom(align=True)
     def slice_by_geom(self, geom, **kwargs):
         """
         Computes an intersection figure of the mosaic and another geometry and returns its
@@ -1601,7 +1602,54 @@ class MosaicGeometry:
 
         return intsctd_mosaic
 
+    @_align_geom(align=True)
+    def subset_by_geom(self, geom, **kwargs):
+        """
+        Selects a tile-preserving subset of the mosaic according to the intersection figure of the mosaic and another
+        geometry.
+
+        Parameters
+        ----------
+        geom : ogr.Geometry or RasterGeometry
+            Other geometry to intersect with.
+        **kwargs :
+            Additional keyword arguments for the `MosaicGeometry` constructor,
+            e.g. `mosaic_id` or `description`.
+
+        Returns
+        -------
+        MosaicGeometry
+            Mosaic geometry instance defined by the tiles intersecting with the geometry.
+
+        """
+        intsctd_mosaic = None
+        intsctd_tiles = []
+        tile_ids_done = []
+        for tile in self._tiles.values():
+            if tile.intersects(geom):
+                tile_ids_done.append(tile.id)
+                intsctd_tiles.append(tile)
+                nbr_tiles = self.get_neighbouring_tiles(tile.id)
+                while len(nbr_tiles) > 0:
+                    new_nbr_tiles = []
+                    for nbr_tile in nbr_tiles:
+                        if nbr_tile.id not in tile_ids_done:
+                            tile_ids_done.append(nbr_tile.id)
+                            if nbr_tile.intersects(geom):
+                                intsctd_tiles.append(nbr_tile)
+                                new_nbr_tiles.extend([nnbr_tile for nnbr_tile in self.get_neighbouring_tiles(nbr_tile.id)
+                                                      if nnbr_tile.id not in tile_ids_done])
+
+                    nbr_tiles = new_nbr_tiles
+                break
+        intsctd_mosaic = MosaicGeometry(intsctd_tiles, parent=self, **kwargs)
+
+        return intsctd_mosaic
+
     def slice_by_xy(self, x, y, x_size=1, y_size=1, inplace=False):
+        pass
+
+    def subset_by_xy(self, x, y, x_size=1, y_size=1, inplace=False):
         pass
 
     def plot(self, ax=None, facecolor='tab:red', edgecolor='black', edgewidth=1, alpha=1., proj=None,
@@ -1774,9 +1822,9 @@ class MosaicGeometry:
                 max_s_idx = item[1]
 
             sref = item[2]
-            extent = [(min_f_idx, min_s_idx), (max_f_idx - self.x_pixel_size, max_s_idx - self.y_pixel_size)]
+            extent = [(min_f_idx, min_s_idx), (max_f_idx, max_s_idx)]
             boundary = bbox_to_polygon(extent, sref)
-            ret_geom = self.slice_by_geom(boundary)
+            ret_geom = self.subset_by_geom(boundary)
         else:
             err_msg = "The given way of indexing is not supported. Only one (tile ID) or " \
                       "three (coordinates) indexes are supported."
@@ -1846,7 +1894,7 @@ class RegularMosaicGeometry(MosaicGeometry):
     @classmethod
     def from_rectangular_definition(cls, n_rows, n_cols, x_tile_size, y_tile_size, sref,
                                     geotrans=(0, 1, 0, 0, 0, 1), tile_class=None, tile_kwargs=None,
-                                    **kwargs):
+                                    id_frmt="S{:03d}W{:03d}", **kwargs):
         """
         Creates a `RegularMosaicGeometry` instance from a well-defined definition of mosaic, i.e. origin, tile sizes,
         number of tiles and spatial reference system.
@@ -1868,6 +1916,9 @@ class RegularMosaicGeometry(MosaicGeometry):
             orientation (defaults to (0, 1, 0, 0, 0, 1))
         tile_kwargs : dict, optional
             Key-word arguments for the tile initialisation (defaults to None).
+        id_frmt : str, optional
+            Formatter string for the tile ID containing placeholders for two arguments, the mosaic row, and the
+            mosaic col (defaults to "S{:03d}W{:03d}").
         **kwargs :
             Key-word arguments for the mosaic initialisation.
 
@@ -1905,7 +1956,7 @@ class RegularMosaicGeometry(MosaicGeometry):
                 tile_geotrans = list(geotrans)
                 tile_geotrans[0] = tile_ul_x
                 tile_geotrans[3] = tile_ul_y
-                tile_id = cls.create_id(mosaic_row, mosaic_col)
+                tile_id = id_frmt.format(mosaic_row, mosaic_col)
                 tile = tile_class(tile_height, tile_width, sref, tuple(tile_geotrans), tile_id, **tile_kwargs)
                 tiles.append(tile)
                 adjacency_matrix[mosaic_row, mosaic_col] = tile_counter
@@ -1920,12 +1971,6 @@ class RegularMosaicGeometry(MosaicGeometry):
         of the regular mosaic.
         """
         return self._adjacency_matrix.shape
-
-    # TODO: discuss usage
-    @staticmethod
-    def create_id(*args):
-        """ str : Default method for creating a tile id counting from North to South and from East to West. """
-        return "S{:03d}W{:03d}".format(args[0], args[1])
 
     def xy2tile(self, x, y, sref=None):
         """
@@ -1998,6 +2043,45 @@ class RegularMosaicGeometry(MosaicGeometry):
 
         Returns
         -------
+        MosaicGeometry
+            Mosaic geometry instance defined by the bounding box of the intersection geometry.
+
+        """
+        intsctd_mosaic = None
+        intsctd_raster_geom = self._raster_geom.slice_by_geom(geom, True, False)
+        if intsctd_raster_geom is None:
+            return intsctd_mosaic
+        intsctd_mosaic_height, intsctd_mosaic_width = intsctd_raster_geom.shape
+        intsctd_tiles = []
+        for intsctd_mosaic_row in range(intsctd_mosaic_height):
+            for intsctd_mosaic_col in range(intsctd_mosaic_width):
+                tile_ul_x, tile_ul_y = intsctd_raster_geom.rc2xy(intsctd_mosaic_row, intsctd_mosaic_col)
+                mosaic_row, mosaic_col = self._raster_geom.xy2rc(tile_ul_x, tile_ul_y)
+                tile = self.__tile_from_rc(mosaic_row, mosaic_col)
+                if tile is not None:
+                    intsctd_tile = tile.slice_by_geom(geom, True, False, geom_id=len(intsctd_tiles))
+                    if intsctd_tile is not None:
+                        intsctd_tiles.append(intsctd_tile)
+
+        intsctd_mosaic = MosaicGeometry(intsctd_tiles, check_consistency=False, parent=self, **kwargs)
+
+        return intsctd_mosaic
+
+    def subset_by_geom(self, geom, **kwargs):
+        """
+        Selects a tile-preserving subset of the mosaic according to the intersection figure of the mosaic and another
+        geometry.
+
+        Parameters
+        ----------
+        geom : ogr.Geometry or RasterGeometry
+            Other geometry to intersect with.
+        **kwargs :
+            Additional keyword arguments for the `RegularMosaicGeometry` constructor,
+            e.g. `mosaic_id` or `description`.
+
+        Returns
+        -------
         RegularMosaicGeometry
             Regular mosaic geometry instance defined by the bounding box of the intersection geometry.
 
@@ -2014,14 +2098,16 @@ class RegularMosaicGeometry(MosaicGeometry):
                 mosaic_row, mosaic_col = self._raster_geom.xy2rc(tile_ul_x, tile_ul_y)
                 tile = self.__tile_from_rc(mosaic_row, mosaic_col)
                 if tile is not None:
-                    intsctd_tile = tile.slice_by_geom(geom, True, False, geom_id=len(intsctd_tiles))
-                    intsctd_tiles.append(intsctd_tile)
+                    intsctd_tiles.append(tile)
 
-        intsctd_mosaic = MosaicGeometry(intsctd_tiles, check_consistency=False, parent=self, **kwargs)
+        intsctd_mosaic = RegularMosaicGeometry(intsctd_tiles, check_consistency=False, parent=self, **kwargs)
 
         return intsctd_mosaic
 
-    def slice_by_xy(self, x, y, x_size=1, y_size=1):
+    def slice_by_xy(self, x, y, x_size=1, y_size=1, **kwargs):
+        pass
+
+    def subset_by_xy(self, x, y, x_size=1, y_size=1, **kwargs):
         pass
 
     def __tile_from_rc(self, r, c):

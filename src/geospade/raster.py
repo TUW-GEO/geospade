@@ -580,7 +580,9 @@ class RasterGeometry:
         Returns
         -------
         bool :
-            True if the specified x and y coordinates are located on the grid.
+            True if the specified x coordinate is located on the grid.
+        bool :
+            True if the specified y coordinate is located on the grid.
 
         """
 
@@ -593,7 +595,7 @@ class RasterGeometry:
         x_is_on_grid = abs(int(x_ratio) - x_ratio) <= (10**-DECIMALS)
         y_is_on_grid = abs(int(y_ratio) - y_ratio) <= (10**-DECIMALS)
 
-        return x_is_on_grid & y_is_on_grid
+        return x_is_on_grid, y_is_on_grid
 
     @_align_geom(align=True)
     def intersects(self, other):
@@ -770,7 +772,7 @@ class RasterGeometry:
 
         return intsct_raster_geom
 
-    def xy2rc(self, x, y, sref=None, px_origin="ul"):
+    def xy2rc(self, x, y, sref=None, px_origin=None):
         """
         Calculates an index of a pixel in which a given point of a world system lies.
 
@@ -790,6 +792,7 @@ class RasterGeometry:
             - lower right ("lr")
             - lower left ("ll")
             - center ("c")
+            Defaults to None, using the class internal pixel origin.
 
         Returns
         -------
@@ -806,11 +809,11 @@ class RasterGeometry:
 
         if sref is not None:
             x, y = transform_coords(x, y, sref, self.sref.osr_sref)
-
+        px_origin = self.px_origin if px_origin is None else px_origin
         c, r = xy2ij(x, y, self.geotrans, origin=px_origin)
         return r, c
 
-    def rc2xy(self, r, c, px_origin="ul"):
+    def rc2xy(self, r, c, px_origin=None):
         """
         Returns the coordinates of the center or a corner (dependent on ˋpx_originˋ) of a pixel specified
         by a row and column number.
@@ -828,6 +831,7 @@ class RasterGeometry:
             - lower right ("lr")
             - lower left ("ll")
             - center ("c")
+            Defaults to None, using the class internal pixel origin.
 
         Returns
         -------
@@ -872,9 +876,14 @@ class RasterGeometry:
 
         """
         new_x, new_y = x, y
-        if not self.is_raster_coord(x, y, sref=sref):
-            row, col = self.xy2rc(x, y, sref=sref, px_origin="ul")
-            new_x, new_y = self.rc2xy(row, col, px_origin=px_origin)
+        x_on_grid, y_on_grid = self.is_raster_coord(x, y, sref=sref)
+        if not (x_on_grid and y_on_grid):
+            row, col = self.xy2rc(x, y, sref=sref, px_origin=self.px_origin)
+            algnd_x, algnd_y = self.rc2xy(row, col, px_origin=px_origin)
+            if not x_on_grid:
+                new_x = algnd_x
+            if not y_on_grid:
+                new_y = algnd_y
 
         return new_x, new_y
 
@@ -1381,8 +1390,6 @@ class MosaicGeometry:
         ref_tile = list(self._tiles.values())[0]
         self.sref = ref_tile.sref
         self.ori = ref_tile.ori
-        self.x_pixel_size = ref_tile.x_pixel_size
-        self.y_pixel_size = ref_tile.y_pixel_size
         self.id = mosaic_id
         self.description = description
         self.parent = parent
@@ -1505,8 +1512,8 @@ class MosaicGeometry:
         # create OGR point
         point = ogr.Geometry(ogr.wkbPoint)
         point.AddPoint(x, y)
-        if sref is not None:
-            point.AssignSpatialReference(sref.osr_sref)
+        osr_sref = self.sref.osr_sref if sref is None else sref.osr_sref
+        point.AssignSpatialReference(osr_sref)
 
         tile_oi = None
         for tile in self._tiles.values():
@@ -1551,7 +1558,7 @@ class MosaicGeometry:
         """
         tile_idx = self.tile_ids.index(tile_id)
         nbr_idxs = self._adjacency_matrix[tile_idx, :]
-        nbr_tiles = np.array(self.tiles)[nbr_idxs]
+        nbr_tiles = np.array(self.tiles)[nbr_idxs].tolist()
 
         return nbr_tiles
 
@@ -1883,6 +1890,8 @@ class RegularMosaicGeometry(MosaicGeometry):
         ul_xs, ul_ys = zip(*[(tile.ul_x, tile.ul_y) for tile in tiles])
         ul_x, ul_y = min(ul_xs), max(ul_ys)
         ref_tile = self.tiles[0]
+        self.x_pixel_size = ref_tile.x_pixel_size
+        self.y_pixel_size = ref_tile.y_pixel_size
         geotrans = ref_tile.geotrans
         x_tile_size = ref_tile.x_size
         y_tile_size = ref_tile.y_size

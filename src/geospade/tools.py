@@ -358,7 +358,7 @@ def _round_geom_coords(geom):
     return geometry_out
 
 
-def rasterise_polygon(geom, x_pixel_size, y_pixel_size, buffer=0):
+def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0):
     """
     Rasterises a polygon defined by clockwise list of points with the edge-flag algorithm.
 
@@ -370,6 +370,9 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, buffer=0):
             Absolute pixel size in X direction.
     y_pixel_size : float
         Absolute pixel size in Y direction.
+    extent : 4-tuple, optional
+        Output extent of the raster (x_min, y_min, x_max, y_max). If it is not set the output extent is taken from the
+        given geometry.
     buffer : int, optional
             Pixel buffer for crop geometry (default is 0).
 
@@ -397,10 +400,10 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, buffer=0):
     ys = [int(y / y_pixel_size) * y_pixel_size for y in ys]
 
     # define extent of the polygon
-    x_min = min(xs)
-    x_max = max(xs)
-    y_min = min(ys)
-    y_max = max(ys)
+    if extent is None:
+        x_min, y_min, x_max, y_max = min(xs), min(ys), max(xs), max(ys)
+    else:
+        x_min, y_min, x_max, y_max = extent
 
     # number of columns and rows
     n_rows = int(round((y_max - y_min) / y_pixel_size, DECIMALS) + 2 * raster_buffer) + 1 # +1 to include start and end coordinate

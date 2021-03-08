@@ -2,6 +2,7 @@ import ogr
 import cv2
 import shapely.wkt
 import numpy as np
+from numba import jit
 from copy import deepcopy
 from geospade import DECIMALS
 from geospade.errors import SrefUnknown
@@ -358,6 +359,38 @@ def _round_geom_coords(geom):
     return geometry_out
 
 
+@jit(nopython=True)
+def _fill_raster_poly(raster):
+    """
+    Fills rasterised polygon.
+
+    Parameters
+    ----------
+    raster : np.ndarray
+        2D, binary numpy array including rasterised polygon boundaries (1=polygon, 0=background).
+
+    Returns
+    -------
+    raster : np.ndarray
+        2D, binary numpy array including rasterised polygon (1=polygon, 0=background).
+
+    """
+    n_rows, n_cols = raster.shape
+    for i in range(n_rows):
+        is_inner = False
+
+        for j in range(n_cols):
+            if raster[i, j]:
+                is_inner = ~is_inner
+
+            if is_inner:
+                raster[i, j] = 1
+            else:
+                raster[i, j] = 0
+
+    return raster
+
+
 def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0):
     """
     Rasterises a polygon defined by clockwise list of points with the edge-flag algorithm.
@@ -460,17 +493,7 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0):
             y = y + y_pixel_size  # increase y with pixel size
 
     # loop over rows and fill raster from left to right
-    for i in range(n_rows):
-        is_inner = False
-
-        for j in range(n_cols):
-            if raster[i, j]:
-                is_inner = ~is_inner
-
-            if is_inner:
-                raster[i, j] = 1
-            else:
-                raster[i, j] = 0
+    raster = _fill_raster_poly(raster)
 
     if buffer != 0.:
         kernel = np.ones((3, 3), np.uint8)

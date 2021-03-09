@@ -37,14 +37,14 @@ class OperationsTest(unittest.TestCase):
         Tests rasterisation of a polygon.
         """
 
-        ref_raster = np.array([[0, 0, 0, 0, 0, 0, 0, 0],
-                               [0, 0, 0, 0, 1, 0, 0, 0],
+        ref_raster = np.array([[0, 0, 0, 0, 1, 0, 0, 0],
                                [0, 0, 0, 1, 1, 0, 0, 0],
                                [0, 0, 1, 1, 1, 0, 0, 0],
                                [0, 1, 1, 1, 1, 1, 0, 0],
                                [1, 1, 1, 1, 1, 1, 1, 0],
                                [1, 1, 1, 1, 1, 1, 1, 0],
-                               [1, 1, 1, 1, 1, 1, 0, 0]])
+                               [1, 1, 1, 1, 1, 1, 0, 0],
+                               [0, 0, 0, 0, 0, 0, 0, 0]])
         ref_raster = np.array(ref_raster)
         poly_pts = [(1, 1), (1, 4), (5, 8), (6, 8), (6, 5), (8, 3), (6, 1), (1, 1)]
         geom = ogr.CreateGeometryFromWkt(Polygon(poly_pts).wkt)
@@ -52,13 +52,13 @@ class OperationsTest(unittest.TestCase):
 
         assert np.all(raster == ref_raster)
 
-        ref_raster = np.array([[0, 0, 0, 0, 0, 0, 0, 0],
-                               [1, 0, 0, 0, 0, 0, 0, 0],
+        ref_raster = np.array([[1, 0, 0, 0, 0, 0, 0, 0],
                                [1, 1, 0, 0, 0, 0, 0, 0],
                                [1, 1, 1, 0, 0, 0, 1, 0],
                                [1, 1, 1, 1, 0, 1, 1, 0],
                                [1, 1, 1, 1, 1, 1, 1, 0],
-                               [1, 1, 1, 1, 1, 1, 1, 0]])
+                               [1, 1, 1, 1, 1, 1, 1, 0],
+                               [0, 0, 0, 0, 0, 0, 0, 0]])
         ref_raster = np.array(ref_raster)
         poly_pts = [(1, 1), (1, 7), (5, 3), (8, 6), (8, 1), (1, 1)]
         geom = ogr.CreateGeometryFromWkt(Polygon(poly_pts).wkt)
@@ -73,10 +73,10 @@ class OperationsTest(unittest.TestCase):
         ref_raster = np.array([[0, 0, 0, 0, 0, 0, 0, 0],
                                [0, 0, 0, 0, 0, 0, 0, 0],
                                [0, 0, 0, 0, 0, 0, 0, 0],
-                               [0, 0, 0, 0, 0, 0, 0, 0],
                                [0, 0, 0, 1, 0, 0, 0, 0],
                                [0, 0, 1, 1, 1, 0, 0, 0],
                                [0, 1, 1, 1, 1, 0, 0, 0],
+                               [0, 0, 0, 0, 0, 0, 0, 0],
                                [0, 0, 0, 0, 0, 0, 0, 0]])
         ref_raster = np.array(ref_raster)
         poly_pts = [(1, 1), (1, 4), (5, 8), (6, 8), (6, 5), (8, 3), (6, 1), (1, 1)]
@@ -85,14 +85,14 @@ class OperationsTest(unittest.TestCase):
 
         assert np.all(raster == ref_raster)
 
-        ref_raster = np.array([[0, 0, 0, 1, 1, 1, 0, 0],
-                               [0, 0, 1, 1, 1, 1, 0, 0],
+        ref_raster = np.array([[0, 0, 1, 1, 1, 1, 0, 0],
                                [0, 1, 1, 1, 1, 1, 0, 0],
                                [1, 1, 1, 1, 1, 1, 1, 0],
                                [1, 1, 1, 1, 1, 1, 1, 1],
                                [1, 1, 1, 1, 1, 1, 1, 1],
                                [1, 1, 1, 1, 1, 1, 1, 1],
-                               [1, 1, 1, 1, 1, 1, 1, 1]])
+                               [1, 1, 1, 1, 1, 1, 1, 1],
+                               [1, 1, 1, 1, 1, 1, 1, 0]])
         ref_raster = np.array(ref_raster)
         poly_pts = [(1, 1), (1, 4), (5, 8), (6, 8), (6, 5), (8, 3), (6, 1), (1, 1)]
         geom = ogr.CreateGeometryFromWkt(Polygon(poly_pts).wkt)

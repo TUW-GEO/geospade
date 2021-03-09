@@ -400,23 +400,26 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0):
     geom : ogr.Geometry
         Clockwise list of x and y coordinates defining a polygon.
     x_pixel_size : float
-            Absolute pixel size in X direction.
+        Absolute pixel size in X direction.
     y_pixel_size : float
         Absolute pixel size in Y direction.
     extent : 4-tuple, optional
         Output extent of the raster (x_min, y_min, x_max, y_max). If it is not set the output extent is taken from the
         given geometry.
     buffer : int, optional
-            Pixel buffer for crop geometry (default is 0).
+        Pixel buffer for crop geometry (default is 0).
 
     Returns
     -------
     raster : np.array
-        Binary array where zeros are background pixels and ones are foreground (polygon) pixels.
+        Binary array where zeros are background pixels and ones are foreground (polygon) pixels. Its shape is defined by
+        the coordinate extent of the input polygon or by the specified `extent` parameter.
 
     Notes
     -----
     The edge-flag algorithm was partly taken from https://de.wikipedia.org/wiki/Rasterung_von_Polygonen
+    The coordinates are always expected to refer to the upper-left corner of a pixel. If the coordinates do not match
+    the sampling, they are automatically aligned to upper-left.
 
     """
     raster_buffer = abs(buffer)
@@ -429,18 +432,21 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0):
     xs, ys = list(zip(*geom_pts))
 
     # round coordinates to lowest corner
-    xs = [int(x / x_pixel_size) * x_pixel_size for x in xs]
-    ys = [int(y / y_pixel_size) * y_pixel_size for y in ys]
+    xs = [int(round(x / x_pixel_size, DECIMALS)) * x_pixel_size for x in xs]
+    ys = [int(round(y / y_pixel_size, DECIMALS)) * y_pixel_size for y in ys]
 
     # define extent of the polygon
     if extent is None:
         x_min, y_min, x_max, y_max = min(xs), min(ys), max(xs), max(ys)
     else:
-        x_min, y_min, x_max, y_max = extent
+        x_min = int(round(extent[0] / x_pixel_size, DECIMALS)) * x_pixel_size
+        x_max = int(round(extent[2] / x_pixel_size, DECIMALS)) * x_pixel_size
+        y_min = int(round(extent[1] / y_pixel_size, DECIMALS)) * y_pixel_size
+        y_max = int(round(extent[3] / y_pixel_size, DECIMALS)) * y_pixel_size
 
-    # number of columns and rows
-    n_rows = int(round((y_max - y_min) / y_pixel_size, DECIMALS) + 2 * raster_buffer) + 1 # +1 to include start and end coordinate
-    n_cols = int(round((x_max - x_min) / x_pixel_size, DECIMALS) + 2 * raster_buffer) + 1 # +1 to include start and end coordinate
+    # number of columns and rows (+1 to include last pixel row and column, which is lost when computing the difference)
+    n_rows = int(round((y_max - y_min) / y_pixel_size, DECIMALS) + 2 * raster_buffer) + 1
+    n_cols = int(round((x_max - x_min) / x_pixel_size, DECIMALS) + 2 * raster_buffer) + 1
 
     # raster with zeros
     raster = np.zeros((n_rows, n_cols), np.uint8)
@@ -487,7 +493,7 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0):
                 x_floor += x_pixel_size
 
             # compute raster indexes
-            i = int(round(abs(y - y_max) / y_pixel_size, DECIMALS) + raster_buffer)
+            i = int(round(abs(y_s - y_max) / y_pixel_size, DECIMALS) + raster_buffer)
             j = int(round(abs(x_floor - x_min) / x_pixel_size, DECIMALS) + raster_buffer)
             raster[i, j] = ~raster[i, j]
             y = y + y_pixel_size  # increase y with pixel size

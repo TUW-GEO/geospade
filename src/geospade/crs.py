@@ -152,14 +152,111 @@ class SpatialRef:
             Cartopy projection representing the projection of the spatial reference system.
 
         """
+        proj4_params = self.to_proj4_dict()
+        proj4_name = proj4_params['proj']
+        central_longitude = proj4_params.get('lon_0', 0.)
+        central_latitude = proj4_params.get('lat_0', 0.)
+        false_easting = proj4_params.get('x_0', 0.)
+        false_northing = proj4_params.get('y_0', 0.)
+        scale_factor = proj4_params.get('k', 1.)
+        standard_parallels = (proj4_params.get('lat_1', 20.),
+                              proj4_params.get('lat_2', 50.))
+
         ccrs_proj = None
-        if self.epsg is None:
-            wrn_msg = "EPSG is not known, thus no Cartopy projection can be created."
-            warnings.warn(wrn_msg)
-        elif self.epsg == 4326:
-            ccrs_proj = ccrs.PlateCarree()
+        if proj4_name == 'longlat':
+            ccrs_proj = ccrs.PlateCarree(central_longitude)
+        elif proj4_name == 'aeqd':
+            ccrs_proj = ccrs.AzimuthalEquidistant(central_longitude,
+                                                  central_latitude,
+                                                  false_easting,
+                                                  false_northing)
+        elif proj4_name == 'merc':
+            ccrs_proj = ccrs.Mercator(central_longitude,
+                                      false_easting=false_easting,
+                                      false_northing=false_northing,
+                                      scale_factor=scale_factor)
+        elif proj4_name == 'eck1':
+            ccrs_proj = ccrs.EckertI(central_longitude,
+                                     false_easting,
+                                     false_northing)
+        elif proj4_name == 'eck2':
+            ccrs_proj = ccrs.EckertII(central_longitude,
+                                      false_easting,
+                                      false_northing)
+        elif proj4_name == 'eck3':
+            ccrs_proj = ccrs.EckertIII(central_longitude,
+                                       false_easting,
+                                       false_northing)
+        elif proj4_name == 'eck4':
+            ccrs_proj = ccrs.EckertIV(central_longitude,
+                                      false_easting,
+                                      false_northing)
+        elif proj4_name == 'eck5':
+            ccrs_proj = ccrs.EckertV(central_longitude,
+                                     false_easting,
+                                     false_northing)
+        elif proj4_name == 'eck6':
+            ccrs_proj = ccrs.EckertVI(central_longitude,
+                                      false_easting,
+                                      false_northing)
+        elif proj4_name == 'aea':
+            ccrs_proj = ccrs.AlbersEqualArea(central_longitude,
+                                             central_latitude,
+                                             false_easting,
+                                             false_northing,
+                                             standard_parallels)
+        elif proj4_name == 'eqdc':
+            ccrs_proj = ccrs.EquidistantConic(central_longitude,
+                                              central_latitude,
+                                              false_easting,
+                                              false_northing,
+                                              standard_parallels)
+        elif proj4_name == 'gnom':
+            ccrs_proj = ccrs.Gnomonic(central_longitude,
+                                      central_latitude)
+        elif proj4_name == 'laea':
+            ccrs_proj = ccrs.LambertAzimuthalEqualArea(central_longitude,
+                                                       central_latitude,
+                                                       false_easting,
+                                                       false_northing)
+        elif proj4_name == 'lcc':
+            ccrs_proj = ccrs.LambertConformal(central_longitude,
+                                              central_latitude,
+                                              false_easting,
+                                              false_northing,
+                                              standard_parallels=standard_parallels)
+        elif proj4_name == 'mill':
+            ccrs_proj = ccrs.Miller(central_longitude)
+        elif proj4_name == 'moll':
+            ccrs_proj = ccrs.Mollweide(central_longitude,
+                                       false_easting=false_easting,
+                                       false_northing=false_northing)
+        elif proj4_name == 'stere':
+            ccrs_proj = ccrs.Stereographic(central_latitude,
+                                           central_longitude,
+                                           false_easting,
+                                           false_northing,
+                                           scale_factor=scale_factor)
+        elif proj4_name == 'ortho':
+            ccrs_proj = ccrs.Orthographic(central_longitude,
+                                          central_latitude)
+        elif proj4_name == 'robin':
+            ccrs_proj = ccrs.Robinson(central_longitude,
+                                      false_easting=false_easting,
+                                      false_northing=false_northing)
+        elif proj4_name == 'sinus':
+            ccrs_proj = ccrs.Sinusoidal(central_longitude,
+                                        false_easting,
+                                        false_northing)
+        elif proj4_name == 'tmerc':
+            ccrs_proj = ccrs.TransverseMercator(central_longitude,
+                                                central_latitude,
+                                                false_easting,
+                                                false_northing,
+                                                scale_factor)
         else:
-            ccrs_proj = ccrs.epsg(self.epsg)
+            err_msg = "Projection '{}' is not supported.".format(proj4_name)
+            raise ValueError(err_msg)
 
         return ccrs_proj
 

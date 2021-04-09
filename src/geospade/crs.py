@@ -390,20 +390,20 @@ class SpatialRef:
             proj4_pairs = (x.split('=', 1) for x in proj4_string.replace('+', '').split(" "))
             return self.__convert_proj4_pairs_to_dict(proj4_pairs)
 
-    def _check_conversion(self, sref_type):
+    def _check_conversion(self, tar_sref_type):
         """
-        Checks whether two spatial reference types can be neatly transformed in both directions
-        (e.g., WKT <-> EPSG).
+        Checks whether this spatial reference type can be neatly transformed to another spatial reference type
+        (e.g., WKT -> EPSG).
 
         Parameters
         ----------
-        sref_type : str
-            String defining the spatial reference type to check. It can be: 'proj4', 'wkt' or 'epsg'.
+        tar_sref_type : str
+            String defining the target spatial reference type to convert to. It can be: 'proj4', 'wkt' or 'epsg'.
 
         Returns
         -------
         bool
-            If False, the bijective conversion between two spatial reference types is not possible.
+            If False, the conversion between this and the target spatial reference is not possible.
 
         """
 
@@ -411,31 +411,23 @@ class SpatialRef:
         srefs_to = {'proj4': lambda x: SpatialRef.osr_to_proj4(x),
                     'wkt': lambda x: SpatialRef.osr_to_wkt(x),
                     'epsg': lambda x: SpatialRef.osr_to_epsg(x)}
-        srefs_from = {'proj4': lambda x: SpatialRef.proj4_to_osr(x),
-                      'wkt': lambda x: SpatialRef.wkt_to_osr(x),
-                      'epsg': lambda x: SpatialRef.epsg_to_osr(x)}
-        warn_msg = "Transformation between '{}' and '{}' is not bijective."
+        warn_msg = "Conversion from '{}' to '{}' is not possible."
 
-        if sref_type not in sref_types:
+        if tar_sref_type not in sref_types:
             err_msg = "Spatial reference type '{}' is unknown. Use 'epsg', 'wkt' or 'proj4'."
-            raise ValueError(err_msg.format(sref_type))
+            raise ValueError(err_msg.format(tar_sref_type))
 
-        if self._sref_type != sref_type:
-            this_sref_val = srefs_to[self._sref_type](self.osr_sref)
-            other_sref_val = srefs_to[sref_type](self.osr_sref)
-            if other_sref_val is None:
-                warnings.warn(warn_msg.format(self._sref_type.upper(), sref_type.upper()))
-                return False
-            # do forth and back-conversion
-            other_sref = srefs_from[sref_type](other_sref_val)
-            this_sref_val_check = srefs_to[self._sref_type](other_sref)
-            if this_sref_val != this_sref_val_check:
-                warnings.warn(warn_msg.format(self._sref_type.upper(), sref_type.upper()))
-                return False
+        is_valid = False
+        if self._sref_type != tar_sref_type:
+            tar_sref_val = srefs_to[tar_sref_type](self.osr_sref)
+            if tar_sref_val is None:
+                warnings.warn(warn_msg.format(self._sref_type.upper(), tar_sref_type.upper()))
             else:
-                return True
+                is_valid = True
         else:
-            return True
+            is_valid = True
+
+        return is_valid
 
     def __eq__(self, other):
         """ Checks if this and another `SpatialRef` object are equal according to their PROJ4 strings. """

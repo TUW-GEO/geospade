@@ -176,14 +176,14 @@ class RasterGeometryTest(unittest.TestCase):
     def test_y_coords(self):
         """ Tests coordinate retrieval along x dimension. """
 
-        # x coordinate retrieval for axis-parallel raster geometry
+        # y coordinate retrieval for axis-parallel raster geometry
         assert len(self.raster_geom.y_coords) == self.raster_geom.n_rows
         assert self.raster_geom.y_coords[-1] == self.raster_geom.rc2xy(self.raster_geom.n_rows - 1, 0)[1]
         assert self.raster_geom.y_coords[0] == self.raster_geom.rc2xy(0, 0)[1]
         rand_idx = random.randrange(1, self.raster_geom.n_rows - 2, 1)
         assert self.raster_geom.y_coords[rand_idx] == self.raster_geom.rc2xy(rand_idx, 0)[1]
 
-        # x coordinate retrieval for rotated raster geometry (rounding introduced because of machine precision)
+        # y coordinate retrieval for rotated raster geometry (rounding introduced because of machine precision)
         assert len(self.raster_geom_rot.y_coords) == self.raster_geom_rot.n_rows
         assert round(self.raster_geom_rot.y_coords[-1], 1) == \
                round(self.raster_geom_rot.rc2xy(self.raster_geom_rot.n_rows - 1, 0)[1], 1)
@@ -192,6 +192,30 @@ class RasterGeometryTest(unittest.TestCase):
         rand_idx = random.randrange(1, self.raster_geom_rot.n_rows - 2, 1)
         assert round(self.raster_geom_rot.y_coords[rand_idx], 1) == \
                round(self.raster_geom_rot.rc2xy(rand_idx, 0)[1], 1)
+
+    def test_xy_coords(self):
+        """ Tests 2D coordinate retrieval along x and y dimension. """
+
+        # coordinate retrieval for axis-parallel raster geometry
+        y_coords_ref, x_coords_ref = np.meshgrid(np.arange(self.raster_geom.ul_y,
+                                                           self.raster_geom.ul_y - self.raster_geom.y_size,
+                                                           -self.y_pixel_size),
+                                                 np.arange(self.raster_geom.ul_x,
+                                                           self.raster_geom.ul_x + self.raster_geom.x_size,
+                                                           self.x_pixel_size),
+                                                 indexing='ij'
+                                                )
+        y_coords, x_coords = self.raster_geom.yx_coords
+        assert np.array_equal(x_coords_ref, x_coords)
+        assert np.array_equal(y_coords_ref, y_coords)
+
+        # coordinate retrieval for rotated raster geometry
+        y_coords, x_coords = self.raster_geom_rot.yx_coords
+        rand_row = random.randrange(self.raster_geom_rot.n_rows)
+        rand_col = random.randrange(self.raster_geom_rot.n_cols)
+        x_coord_ref, y_coord_ref = self.raster_geom_rot.rc2xy(rand_row, rand_col)
+        assert x_coords[rand_row, rand_col] == x_coord_ref
+        assert y_coords[rand_row, rand_col] == y_coord_ref
 
     def test_intersection(self):
         """ Test intersection with different geometries. """

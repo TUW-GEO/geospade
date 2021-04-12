@@ -549,6 +549,17 @@ class RasterGeometry:
             return self.rc2xy(rows, 0)[1]
 
     @property
+    def yx_coords(self):
+        """ np.ndarray, np.ndarray : Returns meshgrid of both coordinates x and y. """
+        if self.is_axis_parallel:
+            y_coords, x_coords = np.meshgrid(self.y_coords, self.x_coords, indexing='ij')
+        else:
+            rows, cols = np.meshgrid(np.arange(self.n_rows), np.arange(self.n_cols), indexing='ij')
+            x_coords, y_coords = self.rc2xy(rows, cols)
+
+        return y_coords, x_coords
+
+    @property
     def boundary_ogr(self):
         """ ogr.Geometry : Returns OGR geometry representation of the boundary of a `RasterGeometry`. """
         return self.boundary
@@ -1151,7 +1162,7 @@ class RasterGeometry:
             Pixel extent not crossing the bounds of the raster geometry.
 
         """
-        max_row = max_row if max_row is not None else self.n_rows-1 # :(
+        max_row = max_row if max_row is not None else self.n_rows-1
         min_row = max(0, min_row)
         min_col = max(0, min_col)
         max_row = min(self.n_rows-1, max_row)  # -1 because of Python indexing

@@ -378,7 +378,6 @@ def _fill_raster_poly(raster):
     n_rows, n_cols = raster.shape
     for i in range(n_rows):
         is_inner = False
-
         for j in range(n_cols):
             if raster[i, j]:
                 is_inner = ~is_inner

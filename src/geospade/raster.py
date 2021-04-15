@@ -531,6 +531,19 @@ class RasterGeometry:
         return corner_pts
 
     @property
+    def coord_corners(self):
+        """
+        4-list of 2-tuples : A tuple containing all corners (convex hull, coordinate extent) in a clock-wise order
+        (lower left, lower right, upper right, upper left).
+
+        """
+        corner_pts = [(self.ll_x, self.ll_y),
+                      (self.ul_x, self.ul_y),
+                      (self.ur_x, self.ur_y),
+                      (self.lr_x, self.lr_y)]
+        return corner_pts
+
+    @property
     def x_coords(self):
         """ np.ndarray : Returns all coordinates in x direction. """
         if self.is_axis_parallel:
@@ -1483,7 +1496,7 @@ class MosaicGeometry:
     """
     __type = 'irregular'
 
-    def __init__(self, tiles, mosaic_boundary=None, adjacency_matrix=None, name='', description="",
+    def __init__(self, tiles, boundary=None, adjacency_matrix=None, name='', description="",
                  check_consistency=True):
         """
         Constructor of `MosaicGeometry` class.
@@ -1492,7 +1505,7 @@ class MosaicGeometry:
         ----------
         tiles : list of `Tile`
             List of tiles.
-        mosaic_boundary : ogr.Geometry, optional
+        boundary : ogr.Geometry, optional
             Strictly defined boundary of the mosaic, i.e. it defines where coordinates are valid/belong to the grid and
             where not. If it is None, the cascaded union of all tiles defines the boundary.
         adjacency_matrix : np.array, optional
@@ -1525,11 +1538,11 @@ class MosaicGeometry:
         self.name = name
         self.description = description
 
-        if mosaic_boundary is None:
+        if boundary is None:
             tile_boundaries = [tile.boundary_shapely for tile in tiles]
-            mosaic_boundary = ogr.CreateGeometryFromWkt(cascaded_union(tile_boundaries).wkt)
-            mosaic_boundary.AssignSpatialReference(self.sref.osr_sref)
-        self.boundary = mosaic_boundary
+            boundary = ogr.CreateGeometryFromWkt(cascaded_union(tile_boundaries).wkt)
+            boundary.AssignSpatialReference(self.sref.osr_sref)
+        self.boundary = boundary
 
         self._adjacency_matrix = adjacency_matrix
         if adjacency_matrix is None:
@@ -1643,7 +1656,6 @@ class MosaicGeometry:
 
         tile_oi = None
         if point.Intersects(self.boundary):  # point is inside grid definition
-            tile_oi = None
             for tile in self.all_tiles:
                 if tile.intersects(point):  # point is inside tile
                     tile_oi = self._mask_tile(tile)
@@ -1651,7 +1663,7 @@ class MosaicGeometry:
 
         return tile_oi
 
-    def name2tile(self, tile_name):
+    def name2tile(self, tile_name, active_only=True, apply_mask=True):
         """
         Converts a tile name to a tile object, e.g. `Tile`.
 
@@ -1659,6 +1671,10 @@ class MosaicGeometry:
         ----------
         tile_name : str
             Tile name.
+        active_only : bool, optional
+            If true, only active tiles are returned (default).
+        apply_mask : bool, optional
+            If true, tiles will have a mask for reflecting the relation with the exact mosaic boundary (default).
 
         Returns
         -------
@@ -1669,7 +1685,13 @@ class MosaicGeometry:
         if tile_name not in self._tiles.index:
             err_msg = "Tile name '{}' is not available.".format(tile_name)
             raise KeyError(err_msg)
-        return self._tiles.loc[tile_name]['tile']
+        tile_oi = self._tiles.loc[tile_name]['tile']
+        if apply_mask:
+            tile_oi = self._mask_tile(tile_oi)
+        if active_only and not self._tiles.loc[tile_name, 'active']:
+            tile_oi = None
+
+        return tile_oi
 
     def get_neighbouring_tiles(self, tile_name, active_only=True, apply_mask=True):
         """
@@ -1752,7 +1774,7 @@ class MosaicGeometry:
         return selected_tiles
 
     @_align_geom(align=True)
-    def slice_tiles_by_geom(self, geom, active_only=True, apply_mask=True):
+    def slice_tiles_by_geom(self, geom, active_only=True):
         """
         Computes an intersection figure of the mosaic and another geometry and returns a list of intersected tiles.
 
@@ -1762,8 +1784,6 @@ class MosaicGeometry:
             Other geometry to intersect with.
         active_only : bool, optional
             If true, only active tiles are returned (default).
-        apply_mask : bool, optional
-            If true, tiles will have a mask for reflecting the relation with the exact mosaic boundary (default).
 
         Returns
         -------
@@ -1771,7 +1791,7 @@ class MosaicGeometry:
             Dictionary of intersected tiles (key=tilename, value=tile object).
 
         """
-        tiles = self.select_tiles_by_geom(geom, active_only, apply_mask)
+        tiles = self.select_tiles_by_geom(geom, active_only)
         intsctd_tiles = dict()
         for i, tile in enumerate(tiles.values()):
             # intersected tile does not have a relation with the original mosaic tile anymore
@@ -1943,8 +1963,12 @@ class MosaicGeometry:
                 tile.mask = np.zeros(tile.shape)
             elif tile.mosaic_topology == 'BOUNDARY':
                 intrsct_geom = self.boundary.Intersection(tile.boundary)
+                # first, using 'outer_boundary_extent' as a pixel buffer for generating the rasterised
+                # pixel skeleton
+                # second, reduce this pixel buffer again to the coordinate extent by skipping the last
+                # row and column
                 tile.mask = rasterise_polygon(intrsct_geom, tile.x_pixel_size, tile.y_pixel_size,
-                                              tile.outer_boundary_extent)
+                                              tile.outer_boundary_extent)[:-1, :-1]
 
         return tile
 
@@ -2087,7 +2111,7 @@ class RegularMosaicGeometry(MosaicGeometry):
     """
     __type = 'regular'
 
-    def __init__(self, tiles, mosaic_boundary=None, adjacency_matrix=None, name=None, description="", check_consistency=True):
+    def __init__(self, tiles, boundary=None, adjacency_matrix=None, name=None, description="", check_consistency=True):
         """
         Constructor of `RegularMosaicGeometry` class.
 
@@ -2095,7 +2119,7 @@ class RegularMosaicGeometry(MosaicGeometry):
         ----------
         tiles : list of `Tile`
             List of tiles.
-        mosaic_boundary : ogr.Geometry, optional
+        boundary : ogr.Geometry, optional
             Strictly defined boundary of the mosaic, i.e. it defines where coordinates are valid/belong to the grid and
             where not. If it is None, the cascaded union of all tiles defines the boundary.
         adjacency_matrix : np.array, optional
@@ -2121,7 +2145,7 @@ class RegularMosaicGeometry(MosaicGeometry):
         if adjacency_matrix is None:
             adjacency_matrix = self.__build_adjacency_matrix(tiles)
 
-        super(RegularMosaicGeometry, self).__init__(tiles, mosaic_boundary, adjacency_matrix, name, description,
+        super(RegularMosaicGeometry, self).__init__(tiles, boundary, adjacency_matrix, name, description,
                                                     check_consistency)
 
         ul_xs, ul_ys = zip(*[(tile.ul_x, tile.ul_y) for tile in tiles])
@@ -2140,7 +2164,7 @@ class RegularMosaicGeometry(MosaicGeometry):
     @classmethod
     def from_rectangular_definition(cls, n_rows, n_cols, x_tile_size, y_tile_size, sref,
                                     geotrans=(0, 1, 0, 0, 0, 1), tile_class=Tile, tile_kwargs=None,
-                                    id_frmt="S{:03d}W{:03d}", mosaic_boundary=None, **kwargs):
+                                    id_frmt="S{:03d}W{:03d}", boundary=None, **kwargs):
         """
         Creates a `RegularMosaicGeometry` instance from a well-defined definition of mosaic, i.e. origin, tile sizes,
         number of tiles and spatial reference system.
@@ -2206,10 +2230,10 @@ class RegularMosaicGeometry(MosaicGeometry):
                                   geotrans=tuple(tile_geotrans),
                                   name=tile_id,
                                   **tile_kwargs)
-                if mosaic_boundary is not None:
-                    if tile.within(mosaic_boundary):
+                if boundary is not None:
+                    if tile.within(boundary):
                         tile.mosaic_topology = "INNER"
-                    elif tile.intersects(mosaic_boundary):
+                    elif tile.intersects(boundary):
                         tile.mosaic_topology = "BOUNDARY"
                     else:
                         tile.mosaic_topology = "OUTER"
@@ -2217,7 +2241,7 @@ class RegularMosaicGeometry(MosaicGeometry):
                 adjacency_matrix[mosaic_row, mosaic_col] = tile_counter
                 tile_counter += 1
 
-        return cls(tiles, check_consistency=True, **kwargs)
+        return cls(tiles, boundary=boundary, check_consistency=True, **kwargs)
 
     @property
     def shape(self):
@@ -2246,8 +2270,18 @@ class RegularMosaicGeometry(MosaicGeometry):
             Tile intersecting/matching with the given world system coordinates.
 
         """
-        mosaic_row, mosaic_col = self._raster_geom.xy2rc(x, y, sref=sref)
-        return self.__tile_from_rc(mosaic_row, mosaic_col)
+        # create OGR point
+        point = ogr.Geometry(ogr.wkbPoint)
+        point.AddPoint(x, y)
+        osr_sref = self.sref.osr_sref if sref is None else sref.osr_sref
+        point.AssignSpatialReference(osr_sref)
+
+        tile_oi = None
+        if point.Intersects(self.boundary):  # point is inside grid definition
+            mosaic_row, mosaic_col = self._raster_geom.xy2rc(x, y, sref=sref)
+            tile_oi = self.__tile_from_rc(mosaic_row, mosaic_col)
+
+        return tile_oi
 
     def get_neighbouring_tiles(self, tile_name, active_only=True, apply_mask=True):
         """

@@ -1,3 +1,5 @@
+""" Testing suite for the crs module. """
+
 import osr
 import unittest
 from geospade.crs import SpatialRef

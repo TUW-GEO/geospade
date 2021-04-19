@@ -12,19 +12,19 @@
 It serves as place to define classes and properties of raster and vector geometries and their operations alike.
 On a higher level, abstract definitions should be embedded in a geospatial context to support interaction with other Python packages, e.g. *gdal*, *geopandas* or *xarray*.
 In comparison to these Python packages, *geospade* never touches or writes any geospatial data on disk. 
-It is a toolkit for geospatial entities (e.g., points, polygons, ...) and their relationships (e.g., intersection, within, ...) in a spatial reference system (e.g., reprojection, grids, ...). 
+It is a toolkit for geospatial entities (e.g., points, polygons, ...) and their relations (e.g., intersection, within, ...) in a spatial reference system (e.g., reprojection, mosaics, ...). 
 
-In *geospade* a geospatial context is given by the spatial reference system class `SpatialRef`, which allows to convert between different spatial reference definitions in Python (e.g., *osr*, *cartopy.crs*, ...) and offers well-known spatial reference system representations, i.e., WKT, PROJ4, and EPSG.
-It aims to solve discrepancies between these representations and to fix issues occuring in lower-level packages, e.g. *gdal*.
+In *geospade* a geospatial context is given by the spatial reference system class `crs.SpatialRef`, which allows to convert between different spatial reference definitions in Python (e.g., *osr*, *cartopy.crs*, ...) and offers well-known spatial reference system representations, i.e. WKT, PROJ4, and EPSG.
+It aims to solve discrepancies between these representations and lower-level package versions, e.g. *gdal*.
 
 An abstract, geospatial definition of a raster is implemented in `RasterGeometry`. 
-It is constructed by providing a pixel extent (i.e., number of rows and columns), the 6 affine geotransformation parameters and a spatial reference system.
+It is constructed by providing a pixel extent, i.e. the number of rows and columns, the 6 affine geotransformation parameters and a spatial reference system.
 With this knowledge, one can use a `RasterGeometry` instance to do many operations, e.g. intersect it with geometries, transform between pixel and spatial reference system coordinates, resize it, or interact with other raster geometries.
 
 Often, geospatial image data is available in tiled or gridded format due to storage/memory limits. 
-To preserve the spatial relationship for each image, `MosaicGeometry` can help to apply geospatial operations across image boundaries.
-It represents a simple collection of `RasterGeometry` instances, where each `RasterGeometry` describes the spatial properties of an image, i.o.w. a tile.
-With this setup, tile relationships and neighbourhoods can be derived.
+To preserve the spatial relationship for each image, `MosaicGeometry` can help to apply geospatial operations across image/tile boundaries.
+It represents a simple collection of `Tile`/`RasterGeometry` instances, where each `Tile` describes the spatial properties of an image.
+With this setup, tile relations and neighbourhoods can be derived.
 
 ## Outlook
 In near future, *geospade* will serve as one of the basic packages supporting [*yeoda*](https://github.com/TUW-GEO/yeoda) and [*veranda*](https://github.com/TUW-GEO/veranda) with geospatial information. 

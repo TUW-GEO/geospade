@@ -1,3 +1,6 @@
+""" Module collecting some often used error messages. """
+
+
 class GeometryUnknown(Exception):
     """ Class to handle exceptions thrown by unknown geometry types."""
 
@@ -15,13 +18,13 @@ class GeometryUnknown(Exception):
         self.message = "The given geometry type '{}' cannot be used.".format(type(geometry))
 
     def __str__(self):
-        """ String representation of this class. """
+        """ str : String representation of this class. """
 
         return self.message
 
 
 class SrefUnknown(Exception):
-    """ Class to handle exceptions thrown by an unknown spatial reference system."""
+    """ Class to handle exceptions thrown by an unknown spatial reference system. """
 
     def __init__(self):
         """ Constructor of `SrefUnknown`. """
@@ -29,6 +32,6 @@ class SrefUnknown(Exception):
         self.message = "No spatial reference system information is supplied."
 
     def __str__(self):
-        """ String representation of this class. """
+        """ str : String representation of this class. """
 
         return self.message

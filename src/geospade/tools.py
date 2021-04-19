@@ -1,8 +1,14 @@
+"""
+The tools module collects general-purpose, geospatial functions for raster and vector geometries and their
+interaction.
+
+"""
+
 import ogr
 import cv2
 import shapely.wkt
 import numpy as np
-from numba import jit
+from numba import njit
 from copy import deepcopy
 from geospade import DECIMALS
 from geospade.errors import SrefUnknown
@@ -57,13 +63,13 @@ def polar_point(x_ori, y_ori, dist, angle, deg=True):
     y_ori :
         y coordinate of the origin.
     dist : float
-        Distance from the origin to the new point
+        Distance from the origin to the new point.
     angle : float
-        Azimuth angle to the new point in respect to the x-axis (horizontal).
+        Azimuth angle to the new point with respect to the x-axis (horizontal).
     deg : boolean, optional
         Denotes, whether `angle` is being parsed in degrees or radians:
-            True    => degrees (default)
-            False   => radians
+            - True    => degrees (default)
+            - False   => radians
 
     Returns
     -------
@@ -88,10 +94,10 @@ def get_inner_angles(polygon, deg=True):
     ----------
     polygon : ogr.Geometry
         Clock-wise ordered OGR polygon.
-    deg: boolean, optional
+    deg : boolean, optional
         Denotes, whether the angles are returned in degrees or radians:
-            True    => degrees (default)
-            False   => radians
+            - True    => degrees (default)
+            - False   => radians
 
     Returns
     -------
@@ -128,12 +134,12 @@ def is_rectangular(polygon, eps=1e-9):
     polygon : ogr.Geometry
         Clock-wise ordered OGR polygon.
     eps : float, optional
-        Machine epsilon (default is 1e-9).
+        Precision at which an angle is considered to be rectangular (default is 1e-9).
 
     Returns
     -------
     bool
-        True if polygon is rectangular, otherwise False.
+        True if the given polygon is rectangular, otherwise False.
 
     """
 
@@ -144,13 +150,13 @@ def is_rectangular(polygon, eps=1e-9):
 def bbox_to_polygon(bbox, sref, segment_size=None):
     """
     Create a polygon geometry from a bounding-box `bbox`, given by
-    a set of two points, spanning a polygon area.
+    a set of two points, spanning a rectangular area.
 
     bbox : list of 2-tuples
         List of coordinates representing the rectangle-region-of-interest
         in the format of [(lower-left x, lower-left y),
         (upper-right x, upper-right y)].
-    sref : SpatialRef
+    sref : geospade.crs.SpatialRef
         Spatial reference system of the coordinates.
     segment_size : float, optional
         For precision: distance of longest segment of the geometry polygon
@@ -189,7 +195,7 @@ def create_polygon_geometry(points, sref, segment_size=None):
         Points defining the polygon, either
         2D: [(x1, y1), (x2, y2), ...] or
         3D: [(x1, y1, z1), (x2, y2, z2), ...].
-    sref : SpatialRef, optional
+    sref : geospade.crs.SpatialRef, optional
         Spatial reference system of the point coordinates.
     segment_size : float, optional
         For precision: distance of longest segment of the geometry polygon
@@ -277,7 +283,7 @@ def any_geom2ogr_geom(geom, sref=None):
         - `shapely.geometry.Point` instance
         - `shapely.geometry.Polygon` instance
         - `ogr.Geometry` instance
-    sref : SpatialRef, optional
+    sref : geospade.crs.SpatialRef, optional
         Spatial reference system applied to the given geometry if it has none.
 
     Returns
@@ -321,7 +327,7 @@ def any_geom2ogr_geom(geom, sref=None):
     return ogr_geom
 
 
-def _round_geom_coords(geom):
+def _round_geom_coords(geom, decimals):
     """
     'Cleans' the coordinates, so that it has rounded coordinates.
 
@@ -329,6 +335,8 @@ def _round_geom_coords(geom):
     ----------
     geom : ogr.Geometry
         An OGR geometry.
+    decimals : int
+        Number of significant digits to round to.
 
     Returns
     -------
@@ -348,9 +356,9 @@ def _round_geom_coords(geom):
 
     for p in range(n_points):
         lon, lat, z = ring.GetPoint(p)
-        rlon, rlat, rz = [np.round(lon, decimals=DECIMALS),
-                          np.round(lat, decimals=DECIMALS),
-                          np.round(z, decimals=DECIMALS)]
+        rlon, rlat, rz = [np.round(lon, decimals=decimals),
+                          np.round(lat, decimals=decimals),
+                          np.round(z, decimals=decimals)]
         rounded_ring.AddPoint(rlon, rlat, rz)
 
     geometry_out = ogr.Geometry(ogr.wkbPolygon)
@@ -359,7 +367,7 @@ def _round_geom_coords(geom):
     return geometry_out
 
 
-@jit(nopython=True)
+@njit
 def _fill_raster_poly(raster):
     """
     Fills rasterised polygon.
@@ -406,7 +414,7 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0):
         Output extent of the raster (x_min, y_min, x_max, y_max). If it is not set the output extent is taken from the
         given geometry.
     buffer : int, optional
-        Pixel buffer for crop geometry (default is 0).
+        Pixel buffer for enlarging the rasterised polygon (default is 0).
 
     Returns
     -------
@@ -524,22 +532,22 @@ def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px'):
     extent : 4-tuple
         Coordinate (min_x, min_y, max_x, max_y) or pixel extent (min_col, min_row, max_col, max_row).
     x_pixel_size : float
-            Absolute pixel size in X direction.
+        Absolute pixel size in X direction.
     y_pixel_size : float
         Absolute pixel size in Y direction.
     unit : string, optional
         Unit of the relative coordinates.
         Possible values are:
-            'px':  Relative coordinates are returned as the number of pixels.
-            'sr':  Relative coordinates are returned as spatial reference units (meters/degrees).
+            - 'px':  Relative coordinates are returned as the number of pixels.
+            - 'sr':  Relative coordinates are returned in spatial reference units (meters/degrees).
 
     Returns
     -------
     4-tuple of numbers
-        Relative position of the given extent with respect to an origin.
+        Relative position of the given extent with respect to the given origin.
         The extent values are dependent on the unit:
-            'px' : (min_col, min_row, max_col, max_row)
-            'sr' : (min_x, min_y, max_x, max_y)
+            - 'px' : (min_col, min_row, max_col, max_row)
+            - 'sr' : (min_x, min_y, max_x, max_y)
 
     """
 
@@ -555,5 +563,5 @@ def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px'):
                np.around(rel_extent[2] / x_pixel_size, decimals=DECIMALS).astype(int),\
                np.around(rel_extent[1] / y_pixel_size, decimals=DECIMALS).astype(int)
     else:
-        err_msg = "Unit {} is unknown. Please use 'px' or 'sr'."
-        raise Exception(err_msg.format(unit))
+        err_msg = "Unit {} is unknown. Please use 'px' or 'sr'.".format(unit)
+        raise ValueError(err_msg)

@@ -1,3 +1,5 @@
+""" Coordinate Reference System (CRS) module. """
+
 import re
 import osr
 import warnings
@@ -10,8 +12,8 @@ class SpatialRef:
     This class represents any OGC compliant spatial reference system. Internally, the
     GDAL OSR SpatialReference class is used, which offers access to and control over
     different representations, such as EPSG, PROJ4 or WKT. Additionally, it can also
-    create an instance of a Cartopy Projection subclass (`PROJ4Projection`), which
-    can be used to plot geometries or data.
+    create an instance of a Cartopy Projection, which can be used to plot geometries
+    or data.
 
     """
 
@@ -29,12 +31,13 @@ class SpatialRef:
             - If ˋargˋ is an integer, it tries to interpret it as an EPSG Code (e.g. 4326).
             - If ˋargˋ is a dict, it assumes that PROJ4 parameters are given as input
               (e.g. {'proj': 'longlat', 'ellps': 'WGS84', 'datum': 'WGS84', 'no_defs' : True}).
-            - If ˋargˋ is a string, the constructor tries to check whether it contains an
-              'EPSG' prefix (=> EPSG, e.g., 'EPSG: 4326'), a plus '+' (=> PROJ4, e.g.,
-              '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs') or 'GEODCS' (=> WKT, e.g.,
-              'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],
-              AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",
-              0.01745329251994328,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]').
+            - If ˋargˋ is a string, the constructor tries to check whether it contains
+                - an 'EPSG' prefix (=> EPSG, e.g., 'EPSG: 4326'),
+                - a plus '+' (=> PROJ4, e.g., '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs'), or
+                - 'GEODCS' (=> WKT, e.g., 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",
+                6378137,298.257223563,AUTHORITY["EPSG","7030"]], AUTHORITY["EPSG","6326"]],
+                PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.01745329251994328,
+                AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]').
         sref_type : str, optional
             String defining the type of ˋargˋ. It can be: 'proj4', 'wkt' or 'epsg'.
             If it is None, the spatial reference type of ˋargˋ is guessed.
@@ -138,13 +141,17 @@ class SpatialRef:
         return self.osr_sref.ExportToPrettyWkt()
 
     def to_proj4_dict(self):
-        """ dict : Converts internal PROJ4 parameter string to a dictionary, where the keys do not contain a plus and the values are converted to non-string values if possible. """
+        """
+        dict : Converts internal PROJ4 parameter string to a dictionary, where the keys do not contain a plus and
+        the values are converted to non-string values if possible.
+
+        """
 
         return self._proj4_str_to_dict(self.proj4)
 
     def to_cartopy_proj(self):
         """
-        Creates a `cartopy.crs.Projection` instance from the EPSG code of the spatial reference.
+        Creates a `cartopy.crs.Projection` instance from PROJ4 parameters.
 
         Returns
         -------
@@ -162,7 +169,6 @@ class SpatialRef:
         standard_parallels = (proj4_params.get('lat_1', 20.),
                               proj4_params.get('lat_2', 50.))
 
-        ccrs_proj = None
         if proj4_name == 'longlat':
             ccrs_proj = ccrs.PlateCarree(central_longitude)
         elif proj4_name == 'aeqd':
@@ -527,9 +533,11 @@ class SpatialRef:
         return is_valid
 
     def __eq__(self, other):
-        """ Checks if this and another `SpatialRef` object are equal according to their PROJ4 strings. """
+        """ bool : Checks if this and another `SpatialRef` object are equal according to their PROJ4 strings. """
+
         return self.proj4 == other.proj4
 
     def __ne__(self, other):
-        """ Checks if this and another `SpatialRef` object are unequal according to their PROJ4 strings. """
+        """ bool : Checks if this and another `SpatialRef` object are unequal according to their PROJ4 strings. """
+
         return not self == other

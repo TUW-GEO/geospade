@@ -1,3 +1,5 @@
+""" Module collecting all functions dealing with coordinate transformations. """
+
 import warnings
 import osr
 import numpy as np
@@ -12,18 +14,18 @@ def xy2ij(x, y, geotrans, origin="ul"):
     Parameters
     ----------
     x : float or np.array
-        World system coordinate in X direction.
+        World system coordinate(s) in X direction.
     y : float or np.array
-        World system coordinate in Y direction.
-    geotrans : tuple
-        GDAL Geotransform parameters/dictionary.
+        World system coordinate(s) in Y direction.
+    geotrans : 6-tuple
+        GDAL geo-transformation parameters/dictionary.
     origin : str, optional
-            Defines the world system origin of the pixel. It can be:
-            - upper left ("ul", default)
-            - upper right ("ur")
-            - lower right ("lr")
-            - lower left ("ll")
-            - center ("c")
+        Defines the world system origin of the pixel. It can be:
+        - upper left ("ul", default)
+        - upper right ("ur")
+        - lower right ("lr")
+        - lower left ("ll")
+        - center ("c")
 
     Returns
     -------
@@ -66,18 +68,18 @@ def ij2xy(i, j, geotrans, origin="ul"):
     Parameters
     ----------
     i : int or np.array
-        Column number in pixels.
+        Column number(s) in pixels.
     j : int or np.array
-        Row number in pixels.
-    geotrans : dict
-        GDAL geotransform parameters/dictionary.
+        Row number(s) in pixels.
+    geotrans : 6-tuple
+        GDAL geo-transformation parameters/dictionary.
     origin : str, optional
-            Defines the world system origin of the pixel. It can be:
-            - upper left ("ul", default)
-            - upper right ("ur")
-            - lower right ("lr")
-            - lower left ("ll")
-            - center ("c")
+        Defines the world system origin of the pixel. It can be:
+        - upper left ("ul", default)
+        - upper right ("ur")
+        - lower right ("lr")
+        - lower left ("ll")
+        - center ("c")
 
     Returns
     -------
@@ -121,9 +123,9 @@ def transform_coords(x, y, this_sref, other_sref):
         World system coordinate in X direction with `this_sref` as a spatial reference system.
     y : float
         World system coordinate in Y direction with `this_sref` as a spatial reference system.
-    this_sref : SpatialRef, optional
+    this_sref : geospade.crs.SpatialRef, optional
         Spatial reference of the source coordinates.
-    other_sref : SpatialRef, optional
+    other_sref : geospade.crs.SpatialRef, optional
         Spatial reference of the target coordinates.
 
     Returns
@@ -143,18 +145,18 @@ def transform_coords(x, y, this_sref, other_sref):
 
 def transform_geom(geom, other_sref):
     """
-    Transforms coordinates from a source to a target spatial reference system.
+    Transforms a OGR geometry from its source to a target spatial reference system.
 
     Parameters
     ----------
     geom : ogr.Geometry
         OGR geometry with an assigned spatial reference system.
-    other_sref : SpatialRef, optional
+    other_sref : geospade.crs.SpatialRef, optional
         Spatial reference of the target geometry.
 
     Returns
     -------
-    geom
+    geom : ogr.Geometry
         Transformed OGR geometry.
 
     """
@@ -163,23 +165,23 @@ def transform_geom(geom, other_sref):
     # transform geometry to new spatial reference system.
     geometry_out.TransformTo(other_sref.osr_sref)
     # round geometry coordinates
-    geometry_out = _round_geom_coords(geometry_out)
+    geometry_out = _round_geom_coords(geometry_out, DECIMALS)
 
     return geometry_out
 
 
 def build_geotransform(ul_x, ul_y, x_pixel_size, y_pixel_size, rot, deg=True):
     """
-    A helper function, that constructs the GDAL geotransform tuple given the
+    A helper function, that constructs the GDAL geo-transformation tuple given the
     upper-left coordinates, the pixel sizes and the rotation angle with respect
     to the world system grid.
 
     Parameters
     ----------
     ul_x : float
-        X coordinates of the upper-left corner.
+        X coordinate of the upper-left corner.
     ul_y : float
-        Y coordinates of the upper-left corner.
+        Y coordinate of the upper-left corner.
     x_pixel_size : float
         Absolute pixel size in X direction.
     y_pixel_size : float
@@ -187,14 +189,14 @@ def build_geotransform(ul_x, ul_y, x_pixel_size, y_pixel_size, rot, deg=True):
     rot : float
         Rotation angle in  degrees and radians depending on `deg`.
     deg : boolean
-        Denotes, whether angle is being parsed in degrees or radians:
-            True => degrees (default)
-            False => radians
+        Denotes, whether `angle` is being parsed in degrees or radians:
+            - True => degrees (default)
+            - False => radians
 
     Returns
     -------
     6-tuple
-        GDAL geotransform tuple.
+        GDAL geo-transformation tuple.
 
     """
 

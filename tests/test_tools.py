@@ -1,16 +1,18 @@
+""" Test suite for the tools module. """
+
 import unittest
 import numpy as np
 from shapely.geometry import Polygon
 import ogr
-from geospade.tools import get_quadrant, rasterise_polygon
+from geospade.tools import get_quadrant
+from geospade.tools import rasterise_polygon
 
 
-class OperationsTest(unittest.TestCase):
+class ToolsTest(unittest.TestCase):
+    """ Tests all functions in the tools module. """
 
     def test_get_quadrant(self):
-        """
-        Tests all 5 cases of quadrants (1,2,3,4,None)
-        """
+        """ Tests all 5 cases of quadrants (1, 2, 3, 4, None). """
 
         x = 1
         y = 1
@@ -33,9 +35,7 @@ class OperationsTest(unittest.TestCase):
         assert get_quadrant(x, y) is None
 
     def test_rasterise_polygon(self):
-        """
-        Tests rasterisation of a polygon.
-        """
+        """ Tests rasterisation of a polygon. """
 
         ref_raster = np.array([[0, 0, 0, 0, 1, 0, 0, 0],
                                [0, 0, 0, 1, 1, 0, 0, 0],
@@ -66,9 +66,7 @@ class OperationsTest(unittest.TestCase):
         assert np.all(raster == ref_raster)
 
     def test_rasterise_polygon_buffer(self):
-        """
-        Tests rasterisation with buffering of a polygon.
-        """
+        """ Tests rasterisation of a polygon (with buffering). """
 
         ref_raster = np.array([[0, 0, 0, 0, 0, 0, 0, 0],
                                [0, 0, 0, 0, 0, 0, 0, 0],

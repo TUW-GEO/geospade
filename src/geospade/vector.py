@@ -1,3 +1,6 @@
+""" Module containing class definitions for vectors. """
+
+
 class VectorGeometry:
     """
     Represents a vector geometry.
@@ -19,7 +22,7 @@ class SwathGeometry:
 
     """
 
-    def __init__(self, xs, ys, sref, geom_id=None, description=None):
+    def __init__(self, xs, ys, sref, name=None, description=None):
         """
         Constructor of the `SwathGeometry` class.
 
@@ -29,10 +32,10 @@ class SwathGeometry:
             East-west coordinates.
         ys : list of numbers
             South-north coordinates.
-        sref : geospade.spatial_ref.SpatialRef
+        sref : geospade.crs.SpatialRef
             Spatial reference of the geometry.
-        geom_id : int or str, optional
-            ID of the geometry.
+        name : int or str, optional
+            Name of the geometry.
         description : string, optional
             Verbal description of the geometry.
 

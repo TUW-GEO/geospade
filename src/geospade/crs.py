@@ -1,3 +1,5 @@
+""" Coordinate Reference System (CRS) module. """
+
 import re
 import osr
 import warnings
@@ -10,8 +12,8 @@ class SpatialRef:
     This class represents any OGC compliant spatial reference system. Internally, the
     GDAL OSR SpatialReference class is used, which offers access to and control over
     different representations, such as EPSG, PROJ4 or WKT. Additionally, it can also
-    create an instance of a Cartopy Projection subclass (`PROJ4Projection`), which
-    can be used to plot geometries or data.
+    create an instance of a Cartopy Projection, which can be used to plot geometries
+    or data.
 
     """
 
@@ -29,12 +31,13 @@ class SpatialRef:
             - If ˋargˋ is an integer, it tries to interpret it as an EPSG Code (e.g. 4326).
             - If ˋargˋ is a dict, it assumes that PROJ4 parameters are given as input
               (e.g. {'proj': 'longlat', 'ellps': 'WGS84', 'datum': 'WGS84', 'no_defs' : True}).
-            - If ˋargˋ is a string, the constructor tries to check whether it contains an
-              'EPSG' prefix (=> EPSG, e.g., 'EPSG: 4326'), a plus '+' (=> PROJ4, e.g.,
-              '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs') or 'GEODCS' (=> WKT, e.g.,
-              'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],
-              AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",
-              0.01745329251994328,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]').
+            - If ˋargˋ is a string, the constructor tries to check whether it contains
+                - an 'EPSG' prefix (=> EPSG, e.g., 'EPSG: 4326'),
+                - a plus '+' (=> PROJ4, e.g., '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs'), or
+                - 'GEODCS' (=> WKT, e.g., 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",
+                6378137,298.257223563,AUTHORITY["EPSG","7030"]], AUTHORITY["EPSG","6326"]],
+                PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.01745329251994328,
+                AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]').
         sref_type : str, optional
             String defining the type of ˋargˋ. It can be: 'proj4', 'wkt' or 'epsg'.
             If it is None, the spatial reference type of ˋargˋ is guessed.
@@ -138,13 +141,17 @@ class SpatialRef:
         return self.osr_sref.ExportToPrettyWkt()
 
     def to_proj4_dict(self):
-        """ dict : Converts internal PROJ4 parameter string to a dictionary, where the keys do not contain a plus and the values are converted to non-string values if possible. """
+        """
+        dict : Converts internal PROJ4 parameter string to a dictionary, where the keys do not contain a plus and
+        the values are converted to non-string values if possible.
+
+        """
 
         return self._proj4_str_to_dict(self.proj4)
 
     def to_cartopy_proj(self):
         """
-        Creates a `cartopy.crs.Projection` instance from the EPSG code of the spatial reference.
+        Creates a `cartopy.crs.Projection` instance from PROJ4 parameters.
 
         Returns
         -------
@@ -152,14 +159,110 @@ class SpatialRef:
             Cartopy projection representing the projection of the spatial reference system.
 
         """
-        ccrs_proj = None
-        if self.epsg is None:
-            wrn_msg = "EPSG is not known, thus no Cartopy projection can be created."
-            warnings.warn(wrn_msg)
-        elif self.epsg == 4326:
-            ccrs_proj = ccrs.PlateCarree()
+        proj4_params = self.to_proj4_dict()
+        proj4_name = proj4_params['proj']
+        central_longitude = proj4_params.get('lon_0', 0.)
+        central_latitude = proj4_params.get('lat_0', 0.)
+        false_easting = proj4_params.get('x_0', 0.)
+        false_northing = proj4_params.get('y_0', 0.)
+        scale_factor = proj4_params.get('k', 1.)
+        standard_parallels = (proj4_params.get('lat_1', 20.),
+                              proj4_params.get('lat_2', 50.))
+
+        if proj4_name == 'longlat':
+            ccrs_proj = ccrs.PlateCarree(central_longitude)
+        elif proj4_name == 'aeqd':
+            ccrs_proj = ccrs.AzimuthalEquidistant(central_longitude,
+                                                  central_latitude,
+                                                  false_easting,
+                                                  false_northing)
+        elif proj4_name == 'merc':
+            ccrs_proj = ccrs.Mercator(central_longitude,
+                                      false_easting=false_easting,
+                                      false_northing=false_northing,
+                                      scale_factor=scale_factor)
+        elif proj4_name == 'eck1':
+            ccrs_proj = ccrs.EckertI(central_longitude,
+                                     false_easting,
+                                     false_northing)
+        elif proj4_name == 'eck2':
+            ccrs_proj = ccrs.EckertII(central_longitude,
+                                      false_easting,
+                                      false_northing)
+        elif proj4_name == 'eck3':
+            ccrs_proj = ccrs.EckertIII(central_longitude,
+                                       false_easting,
+                                       false_northing)
+        elif proj4_name == 'eck4':
+            ccrs_proj = ccrs.EckertIV(central_longitude,
+                                      false_easting,
+                                      false_northing)
+        elif proj4_name == 'eck5':
+            ccrs_proj = ccrs.EckertV(central_longitude,
+                                     false_easting,
+                                     false_northing)
+        elif proj4_name == 'eck6':
+            ccrs_proj = ccrs.EckertVI(central_longitude,
+                                      false_easting,
+                                      false_northing)
+        elif proj4_name == 'aea':
+            ccrs_proj = ccrs.AlbersEqualArea(central_longitude,
+                                             central_latitude,
+                                             false_easting,
+                                             false_northing,
+                                             standard_parallels)
+        elif proj4_name == 'eqdc':
+            ccrs_proj = ccrs.EquidistantConic(central_longitude,
+                                              central_latitude,
+                                              false_easting,
+                                              false_northing,
+                                              standard_parallels)
+        elif proj4_name == 'gnom':
+            ccrs_proj = ccrs.Gnomonic(central_longitude,
+                                      central_latitude)
+        elif proj4_name == 'laea':
+            ccrs_proj = ccrs.LambertAzimuthalEqualArea(central_longitude,
+                                                       central_latitude,
+                                                       false_easting,
+                                                       false_northing)
+        elif proj4_name == 'lcc':
+            ccrs_proj = ccrs.LambertConformal(central_longitude,
+                                              central_latitude,
+                                              false_easting,
+                                              false_northing,
+                                              standard_parallels=standard_parallels)
+        elif proj4_name == 'mill':
+            ccrs_proj = ccrs.Miller(central_longitude)
+        elif proj4_name == 'moll':
+            ccrs_proj = ccrs.Mollweide(central_longitude,
+                                       false_easting=false_easting,
+                                       false_northing=false_northing)
+        elif proj4_name == 'stere':
+            ccrs_proj = ccrs.Stereographic(central_latitude,
+                                           central_longitude,
+                                           false_easting,
+                                           false_northing,
+                                           scale_factor=scale_factor)
+        elif proj4_name == 'ortho':
+            ccrs_proj = ccrs.Orthographic(central_longitude,
+                                          central_latitude)
+        elif proj4_name == 'robin':
+            ccrs_proj = ccrs.Robinson(central_longitude,
+                                      false_easting=false_easting,
+                                      false_northing=false_northing)
+        elif proj4_name == 'sinus':
+            ccrs_proj = ccrs.Sinusoidal(central_longitude,
+                                        false_easting,
+                                        false_northing)
+        elif proj4_name == 'tmerc':
+            ccrs_proj = ccrs.TransverseMercator(central_longitude,
+                                                central_latitude,
+                                                false_easting,
+                                                false_northing,
+                                                scale_factor)
         else:
-            ccrs_proj = ccrs.epsg(self.epsg)
+            err_msg = "Projection '{}' is not supported.".format(proj4_name)
+            raise ValueError(err_msg)
 
         return ccrs_proj
 
@@ -390,20 +493,20 @@ class SpatialRef:
             proj4_pairs = (x.split('=', 1) for x in proj4_string.replace('+', '').split(" "))
             return self.__convert_proj4_pairs_to_dict(proj4_pairs)
 
-    def _check_conversion(self, sref_type):
+    def _check_conversion(self, tar_sref_type):
         """
-        Checks whether two spatial reference types can be neatly transformed in both directions
-        (e.g., WKT <-> EPSG).
+        Checks whether this spatial reference type can be neatly transformed to another spatial reference type
+        (e.g., WKT -> EPSG).
 
         Parameters
         ----------
-        sref_type : str
-            String defining the spatial reference type to check. It can be: 'proj4', 'wkt' or 'epsg'.
+        tar_sref_type : str
+            String defining the target spatial reference type to convert to. It can be: 'proj4', 'wkt' or 'epsg'.
 
         Returns
         -------
         bool
-            If False, the bijective conversion between two spatial reference types is not possible.
+            If False, the conversion between this and the target spatial reference is not possible.
 
         """
 
@@ -411,36 +514,30 @@ class SpatialRef:
         srefs_to = {'proj4': lambda x: SpatialRef.osr_to_proj4(x),
                     'wkt': lambda x: SpatialRef.osr_to_wkt(x),
                     'epsg': lambda x: SpatialRef.osr_to_epsg(x)}
-        srefs_from = {'proj4': lambda x: SpatialRef.proj4_to_osr(x),
-                      'wkt': lambda x: SpatialRef.wkt_to_osr(x),
-                      'epsg': lambda x: SpatialRef.epsg_to_osr(x)}
-        warn_msg = "Transformation between '{}' and '{}' is not bijective."
+        warn_msg = "Conversion from '{}' to '{}' is not possible."
 
-        if sref_type not in sref_types:
+        if tar_sref_type not in sref_types:
             err_msg = "Spatial reference type '{}' is unknown. Use 'epsg', 'wkt' or 'proj4'."
-            raise ValueError(err_msg.format(sref_type))
+            raise ValueError(err_msg.format(tar_sref_type))
 
-        if self._sref_type != sref_type:
-            this_sref_val = srefs_to[self._sref_type](self.osr_sref)
-            other_sref_val = srefs_to[sref_type](self.osr_sref)
-            if other_sref_val is None:
-                warnings.warn(warn_msg.format(self._sref_type.upper(), sref_type.upper()))
-                return False
-            # do forth and back-conversion
-            other_sref = srefs_from[sref_type](other_sref_val)
-            this_sref_val_check = srefs_to[self._sref_type](other_sref)
-            if this_sref_val != this_sref_val_check:
-                warnings.warn(warn_msg.format(self._sref_type.upper(), sref_type.upper()))
-                return False
+        is_valid = False
+        if self._sref_type != tar_sref_type:
+            tar_sref_val = srefs_to[tar_sref_type](self.osr_sref)
+            if tar_sref_val is None:
+                warnings.warn(warn_msg.format(self._sref_type.upper(), tar_sref_type.upper()))
             else:
-                return True
+                is_valid = True
         else:
-            return True
+            is_valid = True
+
+        return is_valid
 
     def __eq__(self, other):
-        """ Checks if this and another `SpatialRef` object are equal according to their PROJ4 strings. """
+        """ bool : Checks if this and another `SpatialRef` object are equal according to their PROJ4 strings. """
+
         return self.proj4 == other.proj4
 
     def __ne__(self, other):
-        """ Checks if this and another `SpatialRef` object are unequal according to their PROJ4 strings. """
+        """ bool : Checks if this and another `SpatialRef` object are unequal according to their PROJ4 strings. """
+
         return not self == other

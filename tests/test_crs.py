@@ -1,3 +1,5 @@
+""" Testing suite for the crs module. """
+
 import osr
 import unittest
 from geospade.crs import SpatialRef
@@ -112,7 +114,11 @@ class TestSpatialref(unittest.TestCase):
 
         sref = SpatialRef(self.epsg)
         capy_proj = sref.to_cartopy_proj()
-        assert isinstance(capy_proj, ccrs.Projection)
+        assert isinstance(capy_proj, ccrs.TransverseMercator)
+
+        sref = SpatialRef(102018)
+        capy_proj = sref.to_cartopy_proj()
+        assert isinstance(capy_proj, ccrs.Stereographic)
 
     def test_equal(self):
         """ Tests if two `SpatialRef` instances are equal. """

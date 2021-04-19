@@ -1,8 +1,11 @@
+""" Module containing class definitions for rasters. """
+
 import os
 import sys
 import ogr
 import copy
 import cartopy
+import pandas as pd
 import numpy as np
 import shapely
 import json
@@ -10,11 +13,13 @@ from collections import OrderedDict
 import shapely.wkt
 from shapely import affinity
 from shapely.geometry import Polygon
+from shapely.ops import cascaded_union
 from matplotlib.patches import Polygon as PolygonPatch
 
 from geospade.tools import polar_point
 from geospade.tools import is_rectangular
 from geospade.tools import bbox_to_polygon
+from geospade.tools import rasterise_polygon
 from geospade.transform import build_geotransform
 from geospade.transform import xy2ij
 from geospade.transform import ij2xy
@@ -43,7 +48,7 @@ def _align_geom(align=False):
 
     Notes
     -----
-    OGR geometry is assumed to be given in first place!
+    The OGR geometry is assumed to be given in first place
 
     """
 
@@ -70,7 +75,7 @@ def _align_geom(align=False):
                 err_msg = "Spatial reference of the given geometry is not set."
                 raise AttributeError(err_msg)
 
-            wrpd_geom = None
+            # warp the geometry to the spatial reference of the raster geometry if they are not the same
             if align and hasattr(self, "sref") and not self.sref.osr_sref.IsSame(other_osr_sref):
                 wrpd_geom = transform_geom(geom, self.sref)
             else:
@@ -86,11 +91,12 @@ class RasterGeometry:
     """
     Represents the geometry of a georeferenced raster.
     It describes the extent and the grid of the raster along with its spatial reference.
-    The (boundary) geometry can be used as an OGR geometry, or can be exported into a Cartopy projection.
+    The (boundary) geometry can also be used as an OGR geometry, to interact with other geometries.
+
     """
     def __init__(self, n_rows, n_cols, sref,
                  geotrans=(0, 1, 0, 0, 0, 1),
-                 geom_id=None,
+                 name=None,
                  description="",
                  px_origin="ul",
                  parent=None):
@@ -103,12 +109,12 @@ class RasterGeometry:
             Number of pixel rows.
         n_cols : int
             Number of pixel columns.
-        sref : geospade.spatial_ref.SpatialRef
+        sref : geospade.crs.SpatialRef
             Instance representing the spatial reference of the geometry.
         geotrans : 6-tuple, optional
-            GDAL geotransform tuple.
-        geom_id : int or str, optional
-            ID of the geometry.
+            GDAL geotransformation tuple.
+        name : str, optional
+            Name of the geometry.
         description : string, optional
             Verbal description of the geometry (defaults to "").
         px_origin : str, optional
@@ -127,14 +133,15 @@ class RasterGeometry:
         self.n_cols = n_cols
         self.geotrans = geotrans
         self.sref = sref
-        self.id = geom_id
+        self.name = name
         self.description = description
         self.parent = parent
         self.px_origin = px_origin
 
         # compute boundary geometry
         boundary = Polygon(self.outer_boundary_corners)
-        boundary_ogr = ogr.CreateGeometryFromWkt(boundary.wkt)
+        # doing a double WKT conversion to prevent precision issues nearby machine epsilon
+        boundary_ogr = ogr.CreateGeometryFromWkt(ogr.CreateGeometryFromWkt(boundary.wkt).ExportToWkt())
         boundary_ogr.AssignSpatialReference(self.sref.osr_sref)
         self.boundary = boundary_ogr
 
@@ -148,22 +155,22 @@ class RasterGeometry:
         Parameters
         ----------
         extent : tuple or list with 4 entries
-            Coordinates defining extent from lower left to upper right corner. This extent and the
-            `outer_boundary_extent` definition are equal.
+            Coordinates defining the extent from the lower-left to the upper-right corner.
+            This extent and the `outer_boundary_extent` definition are equal.
             (lower left x, lower left y, upper right x, upper right y)
-        sref : geospade.spatial_ref.SpatialRef
+        sref : geospade.crs.SpatialRef
             Spatial reference of the geometry/extent.
         x_pixel_size : float
-            Absolute pixel size in x direction.
+            Absolute pixel size in X direction.
         y_pixel_size : float
-            Absolute pixel size in y direction.
+            Absolute pixel size in Y direction.
         **kwargs
-            Keyword arguments for `RasterGeometry` constructor, i.e. `geom_id`, `description`,
+            Keyword arguments for `RasterGeometry` constructor, i.e. `name`, `description`,
             or `parent`.
 
         Returns
         -------
-        RasterGeometry
+        geospade.raster.RasterGeometry
             Raster geometry object defined by the given extent and pixel sizes.
 
         Notes
@@ -188,7 +195,7 @@ class RasterGeometry:
         """
         Creates a `RasterGeometry` object from an existing geometry object.
         Since `RasterGeometry` can represent rectangles only, non-rectangular
-        shapely objects get converted into its bounding box. Since, e.g. a `Shapely`
+        shapely objects get converted into their bounding boxes. Since, e.g. a `Shapely`
         geometry is not geo-referenced, the spatial reference has to be
         specified. Moreover, the resolution in both pixel grid directions has to be given.
 
@@ -201,13 +208,13 @@ class RasterGeometry:
         y_pixel_size : float
             Absolute pixel size in Y direction.
         **kwargs
-            Keyword arguments for `RasterGeometry` constructor, i.e. `geom_id`, `description`,
+            Keyword arguments for `RasterGeometry` constructor, i.e. `name`, `description`,
             or `parent`.
 
         Returns
         -------
-        RasterGeometry
-            Raster geometry object defined by the extent extent of the given geometry and the pixel sizes.
+        geospade.raster.RasterGeometry
+            Raster geometry object defined by the extent of the given geometry and the pixel sizes.
 
         Notes
         -----
@@ -282,17 +289,17 @@ class RasterGeometry:
 
         Parameters
         ----------
-        raster_geoms : list of RasterGeometry
+        raster_geoms : list of geospade.raster.RasterGeometry
             List of `RasterGeometry` objects.
 
         Returns
         -------
-        RasterGeometry
+        geospade.raster.RasterGeometry
             Raster geometry containing all given raster geometries.
 
         Notes
         -----
-        Note: All raster geometries must have the same spatial reference system and pixel sizes!
+        All raster geometries must have the same spatial reference system and pixel sizes.
 
         """
 
@@ -325,16 +332,26 @@ class RasterGeometry:
     @classmethod
     def from_definition(cls, definition):
         """
-        Creates a raster geometry from a human-readable raster geometry definition.
+        Creates a raster geometry from a human-readable raster geometry definition, which is a
+        dictionary containing the following elements:
+            - 'number_of_rows'
+            - 'number_of_columns'
+            - 'spatial_reference'
+            - 'geotransformation'
+            - 'name'
+            - 'description'
+            - 'pixel_origin'
+
+        The expected values can be taken from the `RasterGeometry` constructor docs.
 
         Parameters
         ----------
-        definition : OrderedDict
+        definition : dict
             Raster geometry definition.
 
         Returns
         -------
-        RasterGeometry
+        geospade.raster.RasterGeometry
 
         """
 
@@ -342,16 +359,17 @@ class RasterGeometry:
         n_cols = definition['number_of_columns']
         sref = SpatialRef(definition['spatial_reference'])
         geotrans = tuple(definition['geotransformation'])
-        geom_id = definition['id']
+        name = definition['name']
         description = definition['description']
         px_origin = definition['pixel_origin']
 
-        return cls(n_rows, n_cols, sref, geotrans, geom_id, description, px_origin)
+        return cls(n_rows, n_cols, sref, geotrans, name, description, px_origin)
 
     @classmethod
     def from_json(cls, filepath):
         """
         Creates a raster geometry from a human-readable raster geometry definition in a JSON file.
+        The structure of the dictionary is described in more detail in the `from_definition` classmethod.
 
         Parameters
         ----------
@@ -360,7 +378,7 @@ class RasterGeometry:
 
         Returns
         -------
-        RasterGeometry
+        geospade.raster.RasterGeometry
 
         """
         with open(filepath, 'r') as tmp_file:
@@ -370,7 +388,7 @@ class RasterGeometry:
 
     @property
     def parent_root(self):
-        """ RasterGeometry : Finds and returns the root/original parent `RasterGeometry`. """
+        """ geospade.raster.RasterGeometry : Finds and returns the root/original parent `RasterGeometry`. """
         raster_geom = self
         while raster_geom.parent is not None:
             raster_geom = raster_geom.parent
@@ -381,6 +399,7 @@ class RasterGeometry:
         """
         float : Counter-clockwise orientation of the raster geometry in radians with respect to the
         W-E direction/horizontal.
+
         """
         return -np.arctan2(self.geotrans[2], self.geotrans[1])
 
@@ -391,60 +410,60 @@ class RasterGeometry:
 
     @property
     def ll_x(self):
-        """ float : x coordinate of the lower left corner. """
+        """ float : X coordinate of the lower left corner. """
         x, _ = self.rc2xy(self.n_rows - 1, 0, px_origin=self.px_origin)
         return x
 
     @property
     def ll_y(self):
-        """ float: y coordinate of the lower left corner. """
+        """ float: Y coordinate of the lower left corner. """
         _, y = self.rc2xy(self.n_rows - 1, 0, px_origin=self.px_origin)
         return y
 
     @property
     def ul_x(self):
-        """ float : x coordinate of the upper left corner. """
+        """ float : X coordinate of the upper left corner. """
         x, _ = self.rc2xy(0, 0, px_origin=self.px_origin)
         return x
 
     @property
     def ul_y(self):
-        """ float: y coordinate of the upper left corner. """
+        """ float: Y coordinate of the upper left corner. """
         _, y = self.rc2xy(0, 0, px_origin=self.px_origin)
         return y
 
     @property
     def ur_x(self):
-        """ float : x coordinate of the upper right corner. """
+        """ float : X coordinate of the upper right corner. """
         x, _ = self.rc2xy(0, self.n_cols - 1, px_origin=self.px_origin)
         return x
 
     @property
     def ur_y(self):
-        """ float : y coordinate of the upper right corner. """
+        """ float : Y coordinate of the upper right corner. """
         _, y = self.rc2xy(0, self.n_cols - 1, px_origin=self.px_origin)
         return y
 
     @property
     def lr_x(self):
-        """ float : x coordinate of the upper right corner. """
+        """ float : X coordinate of the upper right corner. """
         x, _ = self.rc2xy(self.n_rows - 1, self.n_cols - 1, px_origin=self.px_origin)
         return x
 
     @property
     def lr_y(self):
-        """ float : y coordinate of the upper right corner. """
+        """ float : Y coordinate of the upper right corner. """
         _, y = self.rc2xy(self.n_rows - 1, self.n_cols - 1, px_origin=self.px_origin)
         return y
 
     @property
     def x_pixel_size(self):
-        """ float : Pixel size in x direction. """
+        """ float : Pixel size in X direction. """
         return np.hypot(self.geotrans[1], self.geotrans[2])
 
     @property
     def y_pixel_size(self):
-        """ float : Pixel size in y direction. """
+        """ float : Pixel size in Y direction. """
         return np.hypot(self.geotrans[4], self.geotrans[5])
 
     @property
@@ -484,15 +503,21 @@ class RasterGeometry:
 
     @property
     def coord_extent(self):
-        """ 4-tuple: Extent of the raster geometry with the pixel origins defined by the class
-        (min_x, min_y, max_x, max_y). """
+        """
+        4-tuple: Extent of the raster geometry with the pixel origins defined during initialisation
+        (min_x, min_y, max_x, max_y).
+
+        """
         return min([self.ll_x, self.ul_x]), min([self.ll_y, self.lr_y]), \
                max([self.ur_x, self.lr_x]), max([self.ur_y, self.ul_y])
 
     @property
     def outer_boundary_extent(self):
-        """ 4-tuple: Outer extent of the raster geometry containing every pixel
-        (min_x, min_y, max_x, max_y). """
+        """
+        4-tuple: Outer extent of the raster geometry containing every pixel
+        (min_x, min_y, max_x, max_y).
+
+        """
         ll_x, ll_y = self.rc2xy(self.n_rows - 1, 0, px_origin="ll")
         ur_x, ur_y = self.rc2xy(0, self.n_cols - 1, px_origin="ur")
         lr_x, lr_y = self.rc2xy(self.n_rows - 1, self.n_cols - 1, px_origin="lr")
@@ -506,7 +531,7 @@ class RasterGeometry:
 
     @property
     def centre(self):
-        """ 2-tuple: Centre defined by the mass centre of the vertices. """
+        """ 2-tuple : Centre defined by the mass centre of the vertices. """
         return shapely.wkt.loads(self.boundary.Centroid().ExportToWkt()).coords[0]
 
     @property
@@ -527,8 +552,21 @@ class RasterGeometry:
         return corner_pts
 
     @property
+    def coord_corners(self):
+        """
+        4-list of 2-tuples : A tuple containing all corners (convex hull, coordinate extent) in a clock-wise order
+        (lower left, lower right, upper right, upper left).
+
+        """
+        corner_pts = [(self.ll_x, self.ll_y),
+                      (self.ul_x, self.ul_y),
+                      (self.ur_x, self.ur_y),
+                      (self.lr_x, self.lr_y)]
+        return corner_pts
+
+    @property
     def x_coords(self):
-        """ np.ndarray : Returns all coordinates in x direction. """
+        """ np.ndarray : Returns all coordinates in X direction. """
         if self.is_axis_parallel:
             min_x, _ = self.rc2xy(0, 0)
             max_x, _ = self.rc2xy(0, self.n_cols)
@@ -539,7 +577,7 @@ class RasterGeometry:
 
     @property
     def y_coords(self):
-        """ np.ndarray : Returns all coordinates in y direction. """
+        """ np.ndarray : Returns all coordinates in Y direction. """
         if self.is_axis_parallel:
             _, min_y = self.rc2xy(self.n_rows, 0)
             _, max_y = self.rc2xy(0, 0)
@@ -547,6 +585,17 @@ class RasterGeometry:
         else:
             rows = np.array(range(self.n_rows))
             return self.rc2xy(rows, 0)[1]
+
+    @property
+    def xy_coords(self):
+        """ np.ndarray, np.ndarray : Returns meshgrid of both coordinates X and Y. """
+        if self.is_axis_parallel:
+            x_coords, y_coords = np.meshgrid(self.x_coords, self.y_coords, indexing='ij')
+        else:
+            rows, cols = np.meshgrid(np.arange(self.n_rows), np.arange(self.n_cols), indexing='ij')
+            x_coords, y_coords = self.rc2xy(rows, cols)
+
+        return x_coords, y_coords
 
     @property
     def boundary_ogr(self):
@@ -570,9 +619,9 @@ class RasterGeometry:
         Parameters
         ----------
         x : float
-            World system coordinate in x direction.
+            World system coordinate in X direction.
         y : float
-            World system coordinate in y direction.
+            World system coordinate in Y direction.
         sref : SpatialRef, optional
             Spatial reference of the coordinates. Has to be given if the spatial
             reference is different than the spatial reference of the raster geometry.
@@ -580,9 +629,9 @@ class RasterGeometry:
         Returns
         -------
         bool :
-            True if the specified x coordinate is located on the grid.
+            True if the specified X coordinate is located on the grid.
         bool :
-            True if the specified y coordinate is located on the grid.
+            True if the specified Y coordinate is located on the grid.
 
         """
 
@@ -604,7 +653,7 @@ class RasterGeometry:
 
         Parameters
         ----------
-        other : ogr.Geometry or RasterGeometry
+        other : ogr.Geometry or geospade.raster.RasterGeometry
             Other geometry to evaluate an intersection with.
 
         Returns
@@ -622,7 +671,7 @@ class RasterGeometry:
 
         Parameters
         ----------
-        other : ogr.Geometry or RasterGeometry
+        other : ogr.Geometry or geospade.raster.RasterGeometry
             Other geometry to evaluate a touch operation with.
 
         Returns
@@ -636,11 +685,11 @@ class RasterGeometry:
     @_align_geom(align=True)
     def within(self, other):
         """
-        Evaluates if a geometry is in the raster geometry.
+        Evaluates if the raster geometry is fully within another geometry.
 
         Parameters
         ----------
-        other : ogr.Geometry or RasterGeometry
+        other : ogr.Geometry or geospade.raster.RasterGeometry
             Other geometry to evaluate a within operation with.
 
         Returns
@@ -658,7 +707,7 @@ class RasterGeometry:
 
         Parameters
         ----------
-        other : ogr.Geometry or RasterGeometry
+        other : ogr.Geometry or geospade.raster.RasterGeometry
             Other geometry to evaluate an overlaps operation with.
 
         Returns
@@ -673,25 +722,25 @@ class RasterGeometry:
     def slice_by_geom(self, other, snap_to_grid=True, inplace=False, **kwargs):
         """
         Computes an intersection figure of two geometries and returns its
-        (grid axes-parallel rectangle) bounding box as a raster geometry.
+        (grid axis-parallel rectangle) bounding box as a raster geometry.
 
         Parameters
         ----------
-        other : ogr.Geometry or RasterGeometry
+        other : ogr.Geometry or geospade.raster.RasterGeometry
             Other geometry to intersect with.
         snap_to_grid : bool, optional
             If true, the computed corners of the intersection are rounded off to
-            nearest pixel corner.
+            nearest pixel corner (default).
         inplace : bool
             If true, the current instance will be modified.
-            If false, a new `RasterGeometry` instance will be created.
+            If false, a new `RasterGeometry` instance will be created (default).
         **kwargs :
             Additional keyword arguments for the `RasterGeometry` constructor,
-            e.g. `geom_id` or `description`.
+            e.g. `name` or `description`.
 
         Returns
         -------
-        RasterGeometry
+        geospade.raster.RasterGeometry
             Raster geometry instance defined by the bounding box of the intersection geometry.
 
         """
@@ -712,7 +761,7 @@ class RasterGeometry:
                                               parent=self, **kwargs)
 
         if inplace:
-            self.id = intsct_raster_geom.id
+            self.name = intsct_raster_geom.name
             self.description = intsct_raster_geom.description
             self.boundary = intsct_raster_geom.boundary
             self.n_rows = intsct_raster_geom.n_rows
@@ -724,7 +773,7 @@ class RasterGeometry:
 
     def slice_by_rc(self, row, col, height=1, width=1, inplace=False, **kwargs):
         """
-        Intersects raster geometry with a pixel extent.
+        Intersects the raster geometry with a pixel extent.
 
         Parameters
         ----------
@@ -738,18 +787,18 @@ class RasterGeometry:
             Number of columns/width of the pixel window.
         inplace : bool
             If true, the current instance will be modified.
-            If false, a new `RasterGeometry` instance will be created.
+            If false, a new `RasterGeometry` instance will be created (default).
         **kwargs :
             Additional keyword arguments for the `RasterGeometry` constructor,
-            e.g. `geom_id` or `description`.
+            e.g. `name` or `description`.
 
         Returns
         -------
-        RasterGeometry
+        geospade.raster.RasterGeometry
             Raster geometry instance defined by the pixel extent.
 
         """
-        intsct_raster_geom = None
+
         max_row = row + height
         max_col = col + width
         min_row, min_col, max_row, max_col = self.__align_pixel_extent(min_row=row, min_col=col,
@@ -762,7 +811,7 @@ class RasterGeometry:
                                             parent=self, **kwargs)
 
         if inplace:
-            self.id = intsct_raster_geom.id
+            self.name = intsct_raster_geom.name
             self.description = intsct_raster_geom.description
             self.boundary = intsct_raster_geom.boundary
             self.n_rows = height
@@ -779,15 +828,15 @@ class RasterGeometry:
         Parameters
         ----------
         x : float
-            World system coordinate in x direction.
+            World system coordinate in X direction.
         y : float
-            World system coordinate in y direction.
+            World system coordinate in Y direction.
         sref : SpatialRef, optional
             Spatial reference of the coordinates. Has to be given if the spatial
             reference is different than the spatial reference of the raster geometry.
         px_origin : str, optional
             Defines the world system origin of the pixel. It can be:
-            - upper left ("ul", default)
+            - upper left ("ul")
             - upper right ("ur")
             - lower right ("lr")
             - lower left ("ll")
@@ -815,7 +864,7 @@ class RasterGeometry:
 
     def rc2xy(self, r, c, px_origin=None):
         """
-        Returns the coordinates of the center or a corner (dependent on ˋpx_originˋ) of a pixel specified
+        Returns the coordinates of the center or a corner (depending on ˋpx_originˋ) of a pixel specified
         by a row and column number.
 
         Parameters
@@ -826,7 +875,7 @@ class RasterGeometry:
             Pixel column number.
         px_origin : str, optional
             Defines the world system origin of the pixel. It can be:
-            - upper left ("ul", default)
+            - upper left ("ul")
             - upper right ("ur")
             - lower right ("lr")
             - lower left ("ll")
@@ -836,9 +885,9 @@ class RasterGeometry:
         Returns
         -------
         x : float
-            World system coordinate in x direction.
+            World system coordinate in X direction.
         y : float
-            World system coordinate in y direction.
+            World system coordinate in Y direction.
 
         """
 
@@ -847,15 +896,15 @@ class RasterGeometry:
 
     def snap_to_grid(self, x, y, sref=None, px_origin="ul"):
         """
-        Rounds the given world system coordinates `x` and `y` to a coordinate point of the grid spanned by the
+        Floors the given world system coordinates `x` and `y` to a coordinate point of the grid spanned by the
         raster geometry. The coordinate anchor specified by `px_origin` is then returned.
 
         Parameters
         ----------
         x : float
-            World system coordinate in x direction.
+            World system coordinate in X direction.
         y : float
-            World system coordinate in y direction.
+            World system coordinate in Y direction.
         sref : SpatialRef, optional
             Spatial reference of the coordinates. Has to be given if the spatial
             reference is different than the spatial reference of the raster geometry.
@@ -870,9 +919,9 @@ class RasterGeometry:
         Returns
         -------
         new_x : float
-            Raster geometry grid coordinate in x direction related to the origin defined by `px_origin`.
+            Raster geometry grid coordinate in X direction related to the origin defined by `px_origin`.
         new_y : float
-            Raster geometry grid coordinate in y direction related to the origin defined by `px_origin`.
+            Raster geometry grid coordinate in Y direction related to the origin defined by `px_origin`.
 
         """
         new_x, new_y = x, y
@@ -903,14 +952,14 @@ class RasterGeometry:
         edgewidth : float, optional
             Width the of edge line (defaults to 1).
         alpha : float, optional
-            Opacity of the boundary polygon (default is 1.).
+            Opacity (default is 1.).
         proj : cartopy.crs, optional
             Cartopy projection instance defining the projection of the axes (default is None).
             If None, the projection of the spatial reference system of the raster geometry is taken.
         show : bool, optional
             If True, the plot result is shown (default is False).
         label_geom : bool, optional
-            If True, the geometry ID is plotted at the center of the raster geometry (default is False).
+            If True, the geometry name is plotted at the center of the raster geometry (default is False).
         add_country_borders : bool, optional
             If True, country borders are added to the plot (`cartopy.feature.BORDERS`) (default is False).
         extent : tuple or list, optional
@@ -931,7 +980,6 @@ class RasterGeometry:
             raise ImportError(err_msg)
 
         this_proj = self.sref.to_cartopy_proj()
-        other_proj = None
         if proj is None:
             other_proj = this_proj
         else:
@@ -954,9 +1002,9 @@ class RasterGeometry:
             ax.set_xlim([extent[0], extent[2]])
             ax.set_ylim([extent[1], extent[3]])
 
-        if self.id is not None and label_geom:
+        if self.name is not None and label_geom:
             transform = this_proj._as_mpl_transform(ax)
-            ax.annotate(str(self.id), xy=self.centre, xycoords=transform, va="center", ha="center")
+            ax.annotate(str(self.name), xy=self.centre, xycoords=transform, va="center", ha="center")
 
         if show:
             plt.show()
@@ -978,11 +1026,11 @@ class RasterGeometry:
             If False, a new `RasterGeometry` instance will be created.
         **kwargs :
             Additional keyword arguments for the `RasterGeometry` constructor,
-            e.g. `geom_id` or `description`.
+            e.g. `name` or `description`.
 
         Returns
         -------
-        RasterGeometry
+        geospade.raster.RasterGeometry
             Scaled raster geometry.
 
         """
@@ -1000,22 +1048,22 @@ class RasterGeometry:
         buffer_size : number or list of numbers
             Buffering values, which have to be given in a clock-wise order, i.e. [left edge, top edge, right edge,
             bottom edge] or as one value.
-        unit: string, optional
+        unit : string, optional
             Unit of the buffering value ˋbuffer_sizeˋ.
             Possible values are:
-                '':	ˋvalˋ is given unitless as a positive scale factor with respect to edge length.
-                'px':  ˋvalˋ is given as number of pixels.
-                'sr':  ˋvalˋ is given in spatial reference units (meters/degrees).
+                '':	ˋbuffer_sizeˋ is given unitless as a positive scale factor with respect to edge length.
+                'px':  ˋbuffer_sizeˋ is given as number of pixels.
+                'sr':  ˋbuffer_sizeˋ is given in spatial reference units (meters/degrees).
         inplace : bool, optional
-            If True, the current instance will be modified (default).
-            If False, a new `RasterGeometry` instance will be created.
+            If True, the current instance will be modified.
+            If False, a new `RasterGeometry` instance will be created (default).
         **kwargs :
             Additional keyword arguments for the `RasterGeometry` constructor,
-            e.g. `geom_id` or `description`.
+            e.g. `name` or `description`.
 
         Returns
         -------
-        RasterGeometry
+        geospade.raster.RasterGeometry
             Resized raster geometry.
 
         """
@@ -1031,8 +1079,6 @@ class RasterGeometry:
             if any([elem < 0 for elem in buffer_size]):
                 err_msg = "Scale factors are only allowed to be positive numbers."
                 raise ValueError(err_msg)
-
-        res_raster_geom = None
 
         # first, convert the geometry to a shapely geometry
         boundary = self.boundary_shapely
@@ -1086,7 +1132,7 @@ class RasterGeometry:
                                              px_origin=self.px_origin, parent=self, **kwargs)
 
         if inplace:
-            self.id = res_raster_geom.id
+            self.name = res_raster_geom.name
             self.description = res_raster_geom.description
             self.boundary = res_raster_geom.boundary
             self.n_rows = res_raster_geom.n_rows
@@ -1102,11 +1148,11 @@ class RasterGeometry:
 
         Returns
         -------
-        OrderedDict
+        dict
 
         """
-        raster_geom_dict = OrderedDict()
-        raster_geom_dict['id'] = self.id
+        raster_geom_dict = dict()
+        raster_geom_dict['name'] = self.name
         raster_geom_dict['number_of_rows'] = self.n_rows
         raster_geom_dict['number_of_columns'] = self.n_cols
         raster_geom_dict['spatial_reference'] = self.sref.to_proj4_dict()
@@ -1151,18 +1197,18 @@ class RasterGeometry:
             Pixel extent not crossing the bounds of the raster geometry.
 
         """
-        max_row = max_row if max_row is not None else self.n_rows-1 # :(
+        max_row = max_row if max_row is not None else self.n_rows-1
         min_row = max(0, min_row)
         min_col = max(0, min_col)
         max_row = min(self.n_rows-1, max_row)  # -1 because of Python indexing
         max_col = min(self.n_cols-1, max_col)  # -1 because of Python indexing
         if min_row > max_row:
-            err_msg = "Row bounds [{};{}] exceed range of possible row indexes {}."
-            raise ValueError(err_msg.format(min_row, max_row, self.n_rows-1))
+            err_msg = "The minimum row number is not allowed to be larger than the maximum row number."
+            raise ValueError(err_msg)
 
         if min_col > max_col:
-            err_msg = "Column bounds [{};{}] exceed range of possible column indexes {}."
-            raise ValueError(err_msg.format(min_col, max_col, self.n_cols-1))
+            err_msg = "The minimum column number is not allowed to be larger than the maximum column number."
+            raise ValueError(err_msg)
 
         return min_row, min_col, max_row, max_col
 
@@ -1173,7 +1219,7 @@ class RasterGeometry:
 
         Parameters
         ----------
-        geom : RasterGeometry or ogr.Geometry
+        geom : geospade.raster.RasterGeometry or ogr.Geometry
             Geometry to check if being within the raster geometry.
 
         Returns
@@ -1197,8 +1243,8 @@ class RasterGeometry:
 
         Parameters
         ----------
-        other: RasterGeometry
-            Raster geometry object to compare with.
+        other : geospade.raster.RasterGeometry
+            Raster geometry to compare with.
 
         Returns
         -------
@@ -1218,7 +1264,7 @@ class RasterGeometry:
 
         Parameters
         ----------
-        other: RasterGeometry
+        other : geospade.raster.RasterGeometry
             Raster geometry object to compare with.
 
         Returns
@@ -1237,12 +1283,12 @@ class RasterGeometry:
 
         Parameters
         ----------
-        other: RasterGeometry or ogr.Geometry
+        other : geospade.raster.RasterGeometry or ogr.Geometry
             Raster geometry object to intersect with.
 
         Returns
         -------
-        RasterGeometry
+        geospade.raster.RasterGeometry
             Raster geometry instance defined by the bounding box of the intersection geometry.
 
         """
@@ -1254,25 +1300,25 @@ class RasterGeometry:
         return self.slice_by_geom(other, inplace=False)
 
     def __str__(self):
-        """ str : String representation of a raster geometry as a Well Known Text (WKT) string. """
+        """ str : Representation of a raster geometry as a Well Known Text (WKT) string. """
 
         return self.boundary_wkt
 
     def __getitem__(self, item):
         """
-        Handles indexing of a raster geometry, which is herein defined as a 2D spatial indexing via x and y coordinates
+        Handles indexing of a raster geometry, which is herein defined as a 2D spatial indexing via X and Y coordinates
         or pixel slicing.
 
         Parameters
         ----------
         item : 2-tuple or 3-tuple
-            2-tuple: contains two indexes/slices for row and column pixel indexing/slicing.
-            3-tuple: contains two coordinates/slices and one entry for a `SpatialRef` instance defining
-                     the spatial reference system of the coordinates.
+            - 2-tuple: contains two indexes/slices for row and column pixel indexing/slicing.
+            - 3-tuple: contains two coordinates/slices and one entry for a `SpatialRef` instance defining
+                       the spatial reference system of the coordinates.
 
         Returns
         -------
-        RasterGeometry
+        geospade.raster.RasterGeometry
             Raster geometry defined by the intersection.
 
         """
@@ -1321,7 +1367,7 @@ class RasterGeometry:
 
         Returns
         -------
-        RasterGeometry
+        geospade.raster.RasterGeometry
 
         """
 
@@ -1329,43 +1375,181 @@ class RasterGeometry:
         n_cols = self.n_cols
         sref = copy.deepcopy(self.sref)
         geotrans = copy.deepcopy(self.geotrans)
-        geom_id = self.id
+        name = self.name
         description = self.description
         px_origin = self.px_origin
         parent = self.parent
 
-        return RasterGeometry(n_rows, n_cols, sref, geotrans, geom_id, description, px_origin, parent)
+        return RasterGeometry(n_rows, n_cols, sref, geotrans, name, description, px_origin, parent)
+
+
+class Tile(RasterGeometry):
+    """ A light wrapper around a raster geometry to realise a tile - mosaic relationship. """
+    def __init__(self, n_rows, n_cols, sref,
+                 geotrans=(0, 1, 0, 0, 0, 1),
+                 mosaic_topology="INNER",
+                 active=True,
+                 metadata=None,
+                 name=None,
+                 description="",
+                 px_origin="ul",
+                 parent=None):
+        """
+        Constructor of the `Tile` class.
+
+        Parameters
+        ----------
+        n_rows : int
+            Number of pixel rows.
+        n_cols : int
+            Number of pixel columns.
+        sref : geospade.spatial_ref.SpatialRef
+            Instance representing the spatial reference of the geometry.
+        geotrans : 6-tuple, optional
+            GDAL geotransformation tuple.
+        mosaic_topology : str, optional
+            String defining the relation between the mosaic boundary and the tile.
+            It can be None, "INNER", "OUTER" or "BOUNDARY". Defaults to "INNER".
+        active : bool, optional
+            Defines if a tile is active or not (defaults to True).
+        metadata : dict, optional
+            Dictionary containing tile-based metadata.
+        name : int or str, optional
+            Name of the geometry.
+        description : string, optional
+            Verbal description of the geometry (defaults to "").
+        px_origin : str, optional
+            Defines the world system origin of the pixel. It can be:
+                - upper left ("ul", default)
+                - upper right ("ur")
+                - lower right ("lr")
+                - lower left ("ll")
+                - center ("c")
+        parent : geospade.raster.Tile
+            Parent `Tile` instance.
+
+        """
+        super().__init__(n_rows, n_cols, sref, geotrans, name, description, px_origin, parent)
+        if mosaic_topology not in ["INNER", "OUTER", "BOUNDARY", None]:
+            err_msg = "Relation '{}' is not valid. Use None, 'INNER', 'OUTER' or 'BOUNDARY'."
+            raise ValueError(err_msg.format(mosaic_topology))
+        self.mosaic_topology = mosaic_topology
+        self.active = active
+        self.metadata = {} if metadata is None else metadata
+        self._mask = None
+
+    @property
+    def mask(self):
+        """ np.ndarray : Binary 2D array representing a pixel mask. """
+        return self._mask
+
+    @mask.setter
+    def mask(self, mask):
+        """
+        Assigns externally generated mask to this tile.
+
+        Parameters
+        ----------
+        mask : np.ndarray
+            Binary 2D array.
+
+        """
+        if mask.shape != self.shape:
+            err_msg = "Shape mismatch of mask {} and tile {}.".format(mask.shape, self.shape)
+            raise ValueError(err_msg)
+        else:
+            self._mask = mask
+
+    @classmethod
+    def from_definition(cls, definition):
+        """
+        Creates a tile from a human-readable tile definition, which is a
+        dictionary containing the following elements:
+            - 'number_of_rows'
+            - 'number_of_columns'
+            - 'spatial_reference'
+            - 'geotransformation'
+            - 'mosaic_topology'
+            - 'active'
+            - 'metadata'
+            - 'name'
+            - 'description'
+            - 'pixel_origin'
+
+        The expected values can be taken from the `RasterGeometry` and `Tile` constructor docs.
+
+        Parameters
+        ----------
+        definition : dict
+            Tile definition.
+
+        Returns
+        -------
+        geospade.raster.Tile
+
+        """
+
+        n_rows = definition['number_of_rows']
+        n_cols = definition['number_of_columns']
+        sref = SpatialRef(definition['spatial_reference'])
+        geotrans = tuple(definition['geotransformation'])
+        mosaic_topology = definition['mosaic_topology']
+        active = definition['active'].lower() == 'true'
+        metadata = definition['metadata']
+        name = definition['name']
+        description = definition['description']
+        px_origin = definition['pixel_origin']
+
+        return cls(n_rows, n_cols, sref, geotrans, mosaic_topology, active, metadata,
+                   name, description, px_origin)
+
+    def to_definition(self):
+        """
+        Creates a human-readable definition of the tile.
+
+        Returns
+        -------
+        dict
+
+        """
+        tile_dict = super().to_definition()
+        tile_dict['active'] = str(self.active).lower()
+        tile_dict['mosaic_topology'] = self.mosaic_topology
+        tile_dict['metadata'] = self.metadata
+
+        return tile_dict
 
 
 class MosaicGeometry:
     """
-    Represents an irregular mosaic of raster geometries/tiles.
+    Represents an irregular mosaic of tiles.
     Tiles are not allowed to intersect with each other.
 
     """
     __type = 'irregular'
 
-    def __init__(self, tiles, adjacency_matrix=None, mosaic_id=None, description="", check_consistency=True,
-                 parent=None):
+    def __init__(self, tiles, boundary=None, adjacency_matrix=None, name='', description="",
+                 check_consistency=True):
         """
         Constructor of `MosaicGeometry` class.
 
         Parameters
         ----------
-        tiles : OrderedDict or list
-            Dictionary including the tile IDs as keys and tiles as values or a 1D array of tiles.
+        tiles : list of geospade.raster.Tile
+            List of tiles.
+        boundary : ogr.Geometry, optional
+            Strictly defined boundary of the mosaic, i.e. it defines where coordinates are valid/belong to the grid and
+            where not. If it is None, the cascaded union of all tiles defines the boundary.
         adjacency_matrix : np.array, optional
             Adjacency matrix given as a boolean array defining the direct neighbourhood relationships of the given tiles.
-            It needs have the same size as the given number of tiles. If it is None, an adjacency matrix is created
+            It needs to have the same size as the given number of tiles. If it is None, an adjacency matrix is created
             on-the-fly (default).
-        mosaic_id : int or str, optional
-            ID of the mosaic.
+        name : str, optional
+            Name of the mosaic.
         description : string, optional
-            Verbal description of the mosaic geometry (defaults to "").
+            Verbal description of the mosaic (defaults to "").
         check_consistency : bool, optional
             If True, the tiles are checked for consistency, i.e. to be non-overlapping (defaults to True).
-        parent : MosaicGeometry, optional
-            Parent mosaic geometry.
 
         """
 
@@ -1374,54 +1558,77 @@ class MosaicGeometry:
                 err_msg = "Adjacency matrix is expected to be passed as a 2D numpy array."
                 raise ValueError(err_msg)
 
-        if not isinstance(tiles, OrderedDict):
-            self._tiles = OrderedDict()
-            for tile in tiles:
-                self._tiles[tile.id] = tile
-        else:
-            self._tiles = tiles
-
         if check_consistency:
-            is_consistent = self.__check_consistency(list(self._tiles.values()))
+            is_consistent = self.__check_consistency(tiles)
             if not is_consistent:
                 err_msg = "Tiles are not allowed to overlap!"
                 raise ValueError(err_msg)
 
-        ref_tile = list(self._tiles.values())[0]
+        ref_tile = tiles[0]
         self.sref = ref_tile.sref
         self.ori = ref_tile.ori
-        self.id = mosaic_id
+        self.name = name
         self.description = description
-        self.parent = parent
+
+        if boundary is None:
+            tile_boundaries = [tile.boundary_shapely for tile in tiles]
+            boundary = ogr.CreateGeometryFromWkt(cascaded_union(tile_boundaries).wkt)
+            boundary.AssignSpatialReference(self.sref.osr_sref)
+        self.boundary = boundary
 
         self._adjacency_matrix = adjacency_matrix
         if adjacency_matrix is None:
-            self._adjacency_matrix = self.__build_adjacency_matrix(list(self._tiles.values()))
+            self._adjacency_matrix = self.__build_adjacency_matrix(tiles)
+
+        # create dataframe as an internal tile inventory
+        self._tiles = self.__build_df(tiles)
 
     @property
-    def tile_ids(self):
-        """ list : All tile ID's of the mosaic. """
-        return list(self._tiles.keys())
+    def all_tiles(self):
+        """ list : All tiles of the mosaic. """
+        return list(self._tiles['tile'])
+
+    @property
+    def all_tile_names(self):
+        """ list : All tile names of the mosaic. """
+        return list(self._tiles.index)
 
     @property
     def tiles(self):
-        """ list : All tiles of the mosaic. """
-        return list(self._tiles.values())
+        """ list : All active tiles of the mosaic. """
+        return list(self._tiles[self._tiles['active']]['tile'])
+
+    @property
+    def tile_names(self):
+        """ list : All active tile names of the mosaic. """
+        return list(self._tiles[self._tiles['active']].index)
 
     @classmethod
-    def from_definition(cls, definition, check_consistency=True):
+    def from_definition(cls, definition, tile_class=Tile, check_consistency=True):
         """
+        Creates a mosaic geometry from a human-readable mosaic definition, which is a
+        dictionary containing the following elements:
+            - 'type'
+            - 'boundary'
+            - 'name'
+            - 'description'
+            - 'adjacency_matrix'
+            - 'tiles'
+
+        The expected values can be taken from the `MosaicGeometry`, `Tile`, and `RasterGeometry` constructor docs.
 
         Parameters
         ----------
-        definition : OrderedDict
+        definition : dict
             Human-readable definition of a mosaic.
+        tile_class : class, optional
+            Class inheriting from `Tile` (default).
         check_consistency : bool, optional
             If True, the tiles are checked for consistency, i.e. to be non-overlapping (defaults to True).
 
         Returns
         -------
-        MosaicGeometry
+        geospade.raster.MosaicGeometry
 
         """
         mosaic_type = definition['type']
@@ -1429,32 +1636,34 @@ class MosaicGeometry:
             err_msg = "Mosaic type of definition '{}' does not match expected mosaic type '{}'".format(mosaic_type,
                                                                                                        cls.__type)
             raise ValueError(err_msg)
-        mosaic_id = definition['id']
+        mosaic_boundary = shapely.wkt.loads(definition['boundary'])
+        mosaic_name = definition['name']
         description = definition['description']
         adjacency_matrix = None if definition['adjacency_matrix'] is None else np.array(definition['adjacency_matrix'])
 
         tiles = []
         for key in definition['tiles'].keys():
-            tiles.append(RasterGeometry.from_definition(definition['tiles'][key]))
+            tiles.append(tile_class.from_definition(definition['tiles'][key]))
 
-        return cls(np.array(tiles), adjacency_matrix, mosaic_id, description, check_consistency)
+        return cls(tiles, mosaic_boundary, adjacency_matrix, mosaic_name, description, check_consistency)
 
     @classmethod
-    def from_json(cls, filepath, check_consistency=True):
+    def from_json(cls, filepath, tile_class=Tile, check_consistency=True):
         """
-        Load mosaic represented by its human-readable definition and adjacency matrix from disk.
+        Creates a mosaic geometry from disk.
 
         Parameters
         ----------
         filepath : str
             Full JSON file path.
+        tile_class : class, optional
+            Class inheriting from `Tile` (default).
         check_consistency : bool, optional
             If True, the tiles are checked for consistency, i.e. to be non-overlapping (defaults to True).
 
-
         Returns
         -------
-        MosaicGeometry
+        geospade.raster.MosaicGeometry
 
         """
 
@@ -1464,34 +1673,12 @@ class MosaicGeometry:
         with open(filepath, 'r') as def_file:
             definition = json.load(def_file)
 
-        return cls.from_definition(definition, check_consistency)
-
-    def xy2id(self, x, y, sref=None):
-        """
-        Converts world system coordinates to a tile ID.
-
-        Parameters
-        ----------
-        x : number
-            World system coordinate in X direction.
-        y : number
-            World system coordinate in Y direction.
-        sref : SpatialRef, optional
-            Spatial reference system of the world system coordinates. If None, the spatial reference system of the
-            coordinates and the spatial reference system of the mosaic are assumed to be the same (default).
-
-        Returns
-        -------
-        str or int :
-            Tile ID.
-
-        """
-        tile = self.xy2tile(x, y, sref=sref)
-        tile_id = tile.id if tile is not None else None
-        return tile_id
+        return cls.from_definition(definition, tile_class, check_consistency)
 
     def xy2tile(self, x, y, sref=None):
         """
+        Returns the tile intersecting with the given world system coordinates. If the coordinates are outside the
+        mosaic boundary, no tile is returned.
 
         Parameters
         ----------
@@ -1505,7 +1692,7 @@ class MosaicGeometry:
 
         Returns
         -------
-        RasterGeometry :
+        geospade.raster.Tile :
             Tile intersecting/matching with the given world system coordinates.
 
         """
@@ -1516,151 +1703,198 @@ class MosaicGeometry:
         point.AssignSpatialReference(osr_sref)
 
         tile_oi = None
-        for tile in self._tiles.values():
-            if tile.intersects(point):
-                tile_oi = tile
-                break
+        if point.Intersects(self.boundary):  # point is inside grid definition
+            for tile in self.all_tiles:
+                if tile.intersects(point):  # point is inside tile
+                    tile_oi = self._mask_tile(tile)
+                    break
 
         return tile_oi
 
-    def id2tile(self, tile_id):
+    def name2tile(self, tile_name, active_only=True, apply_mask=True):
         """
-        Converts a tile ID to a tile object, e.g. `RasterGeometry`.
+        Converts a tile name to a tile.
 
         Parameters
         ----------
-        tile_id : str or int
-            Tile ID.
+        tile_name : str
+            Tile name.
+        active_only : bool, optional
+            If true, only active tiles are returned (default).
+        apply_mask : bool, optional
+            If true, tiles will have a mask for reflecting the relation with the exact mosaic boundary (default).
 
         Returns
         -------
-        RasterGeometry :
-            Raster geometry referring to `tile_id`.
+        geospade.raster.Tile :
+            Tile referring to `tile_name`.
 
         """
+        if tile_name not in self._tiles.index:
+            err_msg = "Tile name '{}' is not available.".format(tile_name)
+            raise KeyError(err_msg)
+        tile_oi = self._tiles.loc[tile_name]['tile']
+        if apply_mask:
+            tile_oi = self._mask_tile(tile_oi)
+        if active_only and not self._tiles.loc[tile_name, 'active']:
+            tile_oi = None
 
-        return self._tiles[tile_id]
+        return tile_oi
 
-    def get_neighbouring_tiles(self, tile_id):
+    def get_neighbouring_tiles(self, tile_name, active_only=True, apply_mask=True):
         """
-        Returns all tiles being in the direct neighbourhood of the tile with the given tile ID.
+        Returns all tiles being in the direct neighbourhood of the tile with the given tile name.
 
         Parameters
         ----------
-        tile_id : str or int
-            Tile ID.
+        tile_name : str or int
+            Tile name.
+        active_only : bool, optional
+            If true, only active tiles are returned (default).
+        apply_mask : bool, optional
+            If true, tiles will have a mask for reflecting the relation with the exact mosaic boundary (default).
 
         Returns
         -------
         list :
-            List of tiles being in the neighbourhood of `tile_id`.
+            List of tiles being in the neighbourhood of `tile_name`.
 
         """
-        tile_idx = self.tile_ids.index(tile_id)
+        tile_idx = self.all_tile_names.index(tile_name)
         nbr_idxs = self._adjacency_matrix[tile_idx, :]
-        nbr_tiles = np.array(self.tiles)[nbr_idxs].tolist()
+        nbr_tiles_df = self._tiles.iloc[nbr_idxs]
+        if active_only:
+            nbr_tiles = list(nbr_tiles_df[nbr_tiles_df['active']]['tile'])
+        else:
+            nbr_tiles = list(nbr_tiles_df['tile'])
 
+        if apply_mask:
+            nbr_tiles = [self._mask_tile(nbr_tile) for nbr_tile in nbr_tiles]
+
+        nbr_tiles = dict([(nbr_tile.name, nbr_tile) for nbr_tile in nbr_tiles])
         return nbr_tiles
 
     @_align_geom(align=True)
-    def slice_by_geom(self, geom, **kwargs):
+    def select_tiles_by_geom(self, geom, active_only=True, apply_mask=True):
         """
-        Computes an intersection figure of the mosaic and another geometry and returns its
-        (grid axes-parallel rectangle) bounding box as a mosaic geometry.
-        The tiles of the mosaic are intersected likewise.
+        Computes an intersection figure of the mosaic and another geometry and returns the tiles intersecting with this
+        figure.
 
         Parameters
         ----------
-        geom : ogr.Geometry or RasterGeometry
+        geom : ogr.Geometry
             Other geometry to intersect with.
-        **kwargs :
-            Additional keyword arguments for the `MosaicGeometry` constructor,
-            e.g. `mosaic_id` or `description`.
+        active_only : bool, optional
+            If true, only active tiles are returned (default).
+        apply_mask : bool, optional
+            If true, tiles will have a mask for reflecting the relation with the exact mosaic boundary (default).
 
         Returns
         -------
-        MosaicGeometry
-            Mosaic geometry instance defined by the bounding box of the intersection geometry.
+        dict
+            Dictionary of tiles (key=tilename, value=tile object).
 
         """
-        intsctd_mosaic = None
-        intsctd_tiles = []
+        selected_tiles = dict()
         tile_ids_done = []
-        for tile in self._tiles.values():
+        tiles = self.tiles if active_only else self.all_tiles
+        for tile in tiles:
             if tile.intersects(geom):
-                tile_ids_done.append(tile.id)
-                intsctd_tile = tile.slice_by_geom(geom, True, False, geom_id=0)
-                intsctd_tiles.append(intsctd_tile)
-                nbr_tiles = self.get_neighbouring_tiles(tile.id)
+                tile_ids_done.append(tile.name)
+                tile = self._mask_tile(tile) if apply_mask else tile
+                selected_tiles[tile.name] = tile
+                nbr_tiles = self.get_neighbouring_tiles(tile.name, active_only).values()
                 while len(nbr_tiles) > 0:
                     new_nbr_tiles = []
                     for nbr_tile in nbr_tiles:
-                        if nbr_tile.id not in tile_ids_done:
-                            tile_ids_done.append(nbr_tile.id)
+                        if nbr_tile.name not in tile_ids_done:
+                            tile_ids_done.append(nbr_tile.name)
                             if nbr_tile.intersects(geom):
-                                intsctd_nbr_tile = nbr_tile.slice_by_geom(geom, True, False, geom_id=len(intsctd_tiles))
-                                intsctd_tiles.append(intsctd_nbr_tile)
-                                new_nbr_tiles.extend([nnbr_tile for nnbr_tile in self.get_neighbouring_tiles(nbr_tile.id)
-                                                      if nnbr_tile.id not in tile_ids_done])
+                                nbr_tile = self._mask_tile(nbr_tile) if apply_mask else nbr_tile
+                                selected_tiles[nbr_tile.name] = nbr_tile
+                                next_nbr_tiles = self.get_neighbouring_tiles(nbr_tile.name, active_only).values()
+                                next_nbr_tiles = [nnbr_tile for nnbr_tile in next_nbr_tiles
+                                                  if nnbr_tile.name not in tile_ids_done]
+                                new_nbr_tiles.extend(next_nbr_tiles)
 
                     nbr_tiles = new_nbr_tiles
                 break
-        intsctd_mosaic = MosaicGeometry(intsctd_tiles, parent=self, **kwargs)
 
-        return intsctd_mosaic
+        return selected_tiles
 
     @_align_geom(align=True)
-    def subset_by_geom(self, geom, **kwargs):
+    def slice_tiles_by_geom(self, geom, active_only=True):
         """
-        Selects a tile-preserving subset of the mosaic according to the intersection figure of the mosaic and another
-        geometry.
+        Computes an intersection figure of the mosaic and another geometry and returns a list of intersected tiles.
 
         Parameters
         ----------
-        geom : ogr.Geometry or RasterGeometry
+        geom : ogr.Geometry
             Other geometry to intersect with.
-        **kwargs :
-            Additional keyword arguments for the `MosaicGeometry` constructor,
-            e.g. `mosaic_id` or `description`.
+        active_only : bool, optional
+            If true, only active tiles are returned (default).
 
         Returns
         -------
-        MosaicGeometry
-            Mosaic geometry instance defined by the tiles intersecting with the geometry.
+        dict
+            Dictionary of intersected tiles (key=tilename, value=tile object).
+
+        Notes
+        -----
+        This operation dissolves the relationship between the mosaic and a tile.
 
         """
-        intsctd_mosaic = None
-        intsctd_tiles = []
-        tile_ids_done = []
-        for tile in self._tiles.values():
-            if tile.intersects(geom):
-                tile_ids_done.append(tile.id)
-                intsctd_tiles.append(tile)
-                nbr_tiles = self.get_neighbouring_tiles(tile.id)
-                while len(nbr_tiles) > 0:
-                    new_nbr_tiles = []
-                    for nbr_tile in nbr_tiles:
-                        if nbr_tile.id not in tile_ids_done:
-                            tile_ids_done.append(nbr_tile.id)
-                            if nbr_tile.intersects(geom):
-                                intsctd_tiles.append(nbr_tile)
-                                new_nbr_tiles.extend([nnbr_tile for nnbr_tile in self.get_neighbouring_tiles(nbr_tile.id)
-                                                      if nnbr_tile.id not in tile_ids_done])
+        tiles = self.select_tiles_by_geom(geom, active_only)
+        intsctd_tiles = dict()
+        for i, tile in enumerate(tiles.values()):
+            # intersected tile does not have a relation with the original mosaic tile anymore
+            intsctd_tile = tile.slice_by_geom(geom, True, False, name=i,
+                                              mosaic_topology=None,
+                                              active=False)
+            intsctd_tiles[intsctd_tile.name] = intsctd_tile
 
-                    nbr_tiles = new_nbr_tiles
-                break
-        intsctd_mosaic = MosaicGeometry(intsctd_tiles, parent=self, **kwargs)
+        return intsctd_tiles
 
-        return intsctd_mosaic
+    @_align_geom(align=True)
+    def slice_by_geom(self, geom):
+        """
+        Activates all mosaic tiles intersecting with the given geometry.
 
-    def slice_by_xy(self, x, y, x_size=1, y_size=1, inplace=False):
-        pass
+        Parameters
+        ----------
+        geom : ogr.Geometry or geospade.raster.RasterGeometry
+            Other geometry to intersect with.
 
-    def subset_by_xy(self, x, y, x_size=1, y_size=1, inplace=False):
-        pass
+        """
+        tiles = self.select_tiles_by_geom(geom, False, False)
+        tile_names = list(tiles.keys())
+        self._tiles['active'] = False
+        self._tiles.loc[tile_names, 'active'] = True
+
+    def filter_tile_metadata(self, metadata):
+        """
+        Activates all mosaic tiles matching the given metadata dictionary.
+
+        Parameters
+        ----------
+        metadata : dict
+            Tile metadata dictionary.
+
+        """
+        tile_df = self._tiles
+        for key, value in metadata.items():
+            if key not in self._tiles.columns:
+                err_msg = "Metadata key '{}' is not available".format(key)
+                raise KeyError(err_msg)
+            else:
+                tile_df = tile_df[tile_df[key] == value]
+
+        self._tiles['active'] = False
+        self._tiles.loc[tile_df.index, 'active'] = True
 
     def plot(self, ax=None, facecolor='tab:red', edgecolor='black', edgewidth=1, alpha=1., proj=None,
-             show=False, label_tiles=False, add_country_borders=True, extent=None):
+             show=False, label_tiles=False, add_country_borders=True, extent=None, active_only=True,
+             plot_boundary=True):
         """
         Plots the tiles of the irregular mosaic geometry on a map.
 
@@ -1682,12 +1916,16 @@ class MosaicGeometry:
         show : bool, optional
             If True, the plot result is shown (default is False).
         label_tiles : bool, optional
-            If True, the tile ID's are plotted at the center of each tile (default is False).
+            If True, the tile names are plotted at the center of each tile (default is False).
         add_country_borders : bool, optional
             If True, country borders are added to the plot (`cartopy.feature.BORDERS`) (default is False).
         extent : tuple or list, optional
             Coordinate/Map extent of the plot, given as [min_x, min_y, max_x, max_y]
             (default is None, meaning global extent).
+        active_only : bool, optional
+            If true, only active tiles are plotted (default).
+        plot_boundary : bool, optional
+            If true, the mosaic boundary is plotted (default).
 
         Returns
         -------
@@ -1702,9 +1940,18 @@ class MosaicGeometry:
             err_msg = "Module 'matplotlib' is mandatory for plotting a MosaicGeometry object."
             raise ImportError(err_msg)
 
-        for tile in self._tiles.values():
+        tiles = self.tiles if active_only else self.all_tiles
+        for tile in tiles:
             ax = tile.plot(ax, facecolor, edgecolor, edgewidth, alpha, proj,
                            False, label_tiles, add_country_borders, extent)
+
+        if plot_boundary:
+            mosaic_boundary = shapely.wkt.loads(self.boundary.ExportToWkt())
+            x_coords_bound, y_coords_bound = list(zip(*mosaic_boundary.exterior.coords))
+            this_proj = self.sref.to_cartopy_proj()
+            transform = this_proj._as_mpl_transform(ax)
+            ax.plot(x_coords_bound, y_coords_bound, color='k', linewidth=2, transform=transform)
+
         if show:
             plt.show()
 
@@ -1716,17 +1963,19 @@ class MosaicGeometry:
 
         Returns
         -------
-        OrderedDict
+        dict
 
         """
         definition = OrderedDict()
-        definition['id'] = self.id
+        definition['name'] = self.name
         definition['description'] = self.description
         definition['tiles'] = OrderedDict()
         definition['type'] = self.__type
         definition['adjacency_matrix'] = self._adjacency_matrix.tolist()
+        definition['boundary'] = self.boundary.ExportToWkt()
 
-        for i, tile in enumerate(self.tiles):
+        for i, tile in enumerate(self.all_tiles):
+            tile.active = self._tiles.iloc[i]['active']
             definition['tiles'][i] = tile.to_definition()
 
         return definition
@@ -1743,6 +1992,74 @@ class MosaicGeometry:
         """
         with open(filepath, 'w') as def_file:
             json.dump(self.to_definition(), def_file, indent=4)
+
+    def _mask_tile(self, tile):
+        """
+        Creates a pixel mask for the specified tile, where 1 is inside
+        and 0 outside the mosaic boundary.
+
+        Parameters
+        ----------
+        tile : geospade.raster.Tile
+            Tile to mask/intersect with the mosaic boundary.
+
+        Returns
+        -------
+        tile : geospade.raster.Tile
+            Tile with the assigned mask.
+
+        """
+        if tile.mask is None:
+            if tile.mosaic_topology == 'INNER':
+                tile.mask = np.ones(tile.shape)
+            elif tile.mosaic_topology == 'OUTER':
+                tile.mask = np.zeros(tile.shape)
+            elif tile.mosaic_topology == 'BOUNDARY':
+                intrsct_geom = self.boundary.Intersection(tile.boundary)
+                # first, using 'outer_boundary_extent' as a pixel buffer for generating the rasterised
+                # pixel skeleton
+                # second, reduce this pixel buffer again to the coordinate extent by skipping the last
+                # row and column
+                tile.mask = rasterise_polygon(intrsct_geom, tile.x_pixel_size, tile.y_pixel_size,
+                                              tile.outer_boundary_extent)[:-1, :-1]
+
+        return tile
+
+    def __build_df(self, tiles):
+        """
+        Converts a list of tiles to a data frame.
+
+        Parameters
+        ----------
+        tiles : list of geospade.raster.Tile
+            List of tiles.
+
+        Returns
+        -------
+        pd.Dataframe
+            Dataframe storing relevant tile information.
+
+        """
+        ref_tile = tiles[0]
+        columns = ['tile', 'active', 'topology'] + list(ref_tile.metadata.keys())
+        tile_dict = dict()
+        for column in columns:
+            tile_dict[column] = []
+
+        index = []
+        for tile in tiles:
+            tile_dict['tile'].append(tile)
+            index.append(tile.name)
+            tile_dict['active'].append(tile.active)
+            tile_dict['topology'].append(tile.mosaic_topology)
+            for key, value in tile.metadata.items():
+                if key not in columns:
+                    err_msg = "Metadata key '{}' differs from existing keys.".format(key)
+                    raise KeyError(err_msg)
+                else:
+                    tile_dict[key].append(value)
+
+        return pd.DataFrame(tile_dict, index=index)
 
     def __build_adjacency_matrix(self, tiles):
         """
@@ -1767,8 +2084,8 @@ class MosaicGeometry:
 
         Parameters
         ----------
-        tiles : np.array
-            List of tiles/raster geometries.
+        tiles : list of geospade.raster.Tile
+            List of tiles.
 
         Returns
         -------
@@ -1791,28 +2108,27 @@ class MosaicGeometry:
 
     def __getitem__(self, item):
         """
-        Handles indexing of a mosaic, which is herein defined as either 1D indexing with a tile ID or
-        3D spatial indexing via x and y coordinates and their spatial reference.
+        Handles slicing of a mosaic, which is herein defined as either 1D indexing with a tile name or
+        3D spatial indexing via X and Y coordinates and their spatial reference.
 
         Parameters
         ----------
-        item : str or int or 3-tuple
-            str or int: referring to tile IDs.
-            3-tuple: contains two coordinates/slices and one entry for a `SpatialRef` instance defining
-                     the spatial reference system of the coordinates.
+        item : str or 3-tuple
+            - str : a tile name
+            - 3-tuple : contains two coordinates/slices and one entry for a `SpatialRef` instance defining
+                        the spatial reference system of the coordinates
 
         Returns
         -------
-        MosaicGeometry or RasterGeometry
-            Returns either a mosaic geometry for coordinate intersection or a raster geometry for
-            tile indexing.
+        `Tile` or dict of (tile name, geospade.raster.Tile) pairs:
+            Returns either one or multiple tiles from the mosaic.
 
         """
 
         ret_geom = None
 
         if isinstance(item, (str, int)):
-            ret_geom = self.id2tile(item)
+            ret_geom = self.name2tile(item)
         elif isinstance(item, tuple) and (len(item) == 3):
             if isinstance(item[0], slice):
                 min_f_idx = item[0].start
@@ -1831,9 +2147,9 @@ class MosaicGeometry:
             sref = item[2]
             extent = [(min_f_idx, min_s_idx), (max_f_idx, max_s_idx)]
             boundary = bbox_to_polygon(extent, sref)
-            ret_geom = self.subset_by_geom(boundary)
+            ret_geom = self.select_tiles_by_geom(boundary)
         else:
-            err_msg = "The given way of indexing is not supported. Only one (tile ID) or " \
+            err_msg = "The given way of indexing is not supported. Only one (tile name) or " \
                       "three (coordinates) indexes are supported."
             raise ValueError(err_msg)
 
@@ -1842,38 +2158,36 @@ class MosaicGeometry:
 
 class RegularMosaicGeometry(MosaicGeometry):
     """
-    Represents a regular, homogeneous mosaic of raster geometries/tiles. This means tiles are not allowed to
+    Represents a regular, homogeneous mosaic of tiles. This means tiles are not allowed to
     overlap or vary in size.
 
     """
     __type = 'regular'
 
-    def __init__(self, tiles, adjacency_matrix=None, mosaic_id=None, description="", check_consistency=True,
-                 parent=None):
+    def __init__(self, tiles, boundary=None, adjacency_matrix=None, name=None, description="", check_consistency=True):
         """
         Constructor of `RegularMosaicGeometry` class.
 
         Parameters
         ----------
-        tiles : OrderedDict or list
-            Dictionary including the tile IDs as keys and tiles as values or a 1D array of tiles.
+        tiles : list of geospade.raster.Tile
+            List of tiles.
+        boundary : ogr.Geometry, optional
+            Strictly defined boundary of the mosaic, i.e. it defines where coordinates are valid/belong to the grid and
+            where not. If it is None, the cascaded union of all tiles defines the boundary.
         adjacency_matrix : np.array, optional
             Adjacency matrix given as a boolean array defining the direct neighbourhood relationships of the given tiles.
             It needs have the same size as the given number of tiles. If it is None, an adjacency matrix is created
             on-the-fly (default).
-        mosaic_id : int or str, optional
-            ID of the mosaic.
+        name : str, optional
+            Name of the mosaic.
         description : string, optional
             Verbal description of the mosaic geometry (defaults to "").
         check_consistency : bool, optional
             If True, the tiles are checked for consistency, i.e. to be non-overlapping and of the same shape
             (defaults to True).
-        parent : MosaicGeometry, optional
-            Parent mosaic geometry object.
 
         """
-        if isinstance(tiles, OrderedDict):
-            tiles = list(tiles.values())
 
         if check_consistency:
             is_consistent = self.__check_consistency(tiles)
@@ -1884,12 +2198,12 @@ class RegularMosaicGeometry(MosaicGeometry):
         if adjacency_matrix is None:
             adjacency_matrix = self.__build_adjacency_matrix(tiles)
 
-        super(RegularMosaicGeometry, self).__init__(tiles, adjacency_matrix, mosaic_id, description,
-                                                    check_consistency, parent)
+        super(RegularMosaicGeometry, self).__init__(tiles, boundary, adjacency_matrix, name, description,
+                                                    check_consistency)
 
         ul_xs, ul_ys = zip(*[(tile.ul_x, tile.ul_y) for tile in tiles])
         ul_x, ul_y = min(ul_xs), max(ul_ys)
-        ref_tile = self.tiles[0]
+        ref_tile = tiles[0]
         self.x_pixel_size = ref_tile.x_pixel_size
         self.y_pixel_size = ref_tile.y_pixel_size
         geotrans = ref_tile.geotrans
@@ -1902,8 +2216,8 @@ class RegularMosaicGeometry(MosaicGeometry):
 
     @classmethod
     def from_rectangular_definition(cls, n_rows, n_cols, x_tile_size, y_tile_size, sref,
-                                    geotrans=(0, 1, 0, 0, 0, 1), tile_class=None, tile_kwargs=None,
-                                    id_frmt="S{:03d}W{:03d}", **kwargs):
+                                    geotrans=(0, 1, 0, 0, 0, 1), tile_class=Tile, tile_kwargs=None,
+                                    name_frmt="S{:03d}W{:03d}", boundary=None, **kwargs):
         """
         Creates a `RegularMosaicGeometry` instance from a well-defined definition of mosaic, i.e. origin, tile sizes,
         number of tiles and spatial reference system.
@@ -1921,24 +2235,25 @@ class RegularMosaicGeometry(MosaicGeometry):
         sref : SpatialRef
             Spatial reference system of the mosaic.
         geotrans : 6-tuple, optional
-            GDAL geotransform tuple containing information about the origin of the mosaic, its pixel sampling and its
-            orientation (defaults to (0, 1, 0, 0, 0, 1))
+            GDAL geotransformation tuple containing information about the origin of the mosaic, its pixel sampling and
+            its orientation (defaults to (0, 1, 0, 0, 0, 1))
+        tile_class : class, optional
+            Class inheriting from `Tile` (default).
         tile_kwargs : dict, optional
             Key-word arguments for the tile initialisation (defaults to None).
-        id_frmt : str, optional
-            Formatter string for the tile ID containing placeholders for two arguments, the mosaic row, and the
+        name_frmt : str, optional
+            Formatter string for the tile name containing placeholders for two arguments, the mosaic row, and the
             mosaic col (defaults to "S{:03d}W{:03d}").
         **kwargs :
             Key-word arguments for the mosaic initialisation.
 
         Returns
         -------
-        RegularMosaicGeometry :
+        geospade.raster.RegularMosaicGeometry :
             Regular mosaic geometry defined by the given origin, tile sizes, number of tiles and the
             spatial reference system.
 
         """
-        tile_class = RasterGeometry if tile_class is None else tile_class
         tile_kwargs = {} if tile_kwargs is None else tile_kwargs
 
         mosaic_ul_x, mosaic_ul_y = geotrans[0], geotrans[3]
@@ -1965,24 +2280,37 @@ class RegularMosaicGeometry(MosaicGeometry):
                 tile_geotrans = list(geotrans)
                 tile_geotrans[0] = tile_ul_x
                 tile_geotrans[3] = tile_ul_y
-                tile_id = id_frmt.format(mosaic_row, mosaic_col)
-                tile = tile_class(tile_height, tile_width, sref, tuple(tile_geotrans), tile_id, **tile_kwargs)
+                tile_id = name_frmt.format(mosaic_row, mosaic_col)
+                tile = tile_class(tile_height, tile_width, sref,
+                                  geotrans=tuple(tile_geotrans),
+                                  name=tile_id,
+                                  **tile_kwargs)
+                if boundary is not None:
+                    if tile.within(boundary):
+                        tile.mosaic_topology = "INNER"
+                    elif tile.intersects(boundary):
+                        tile.mosaic_topology = "BOUNDARY"
+                    else:
+                        tile.mosaic_topology = "OUTER"
                 tiles.append(tile)
                 adjacency_matrix[mosaic_row, mosaic_col] = tile_counter
                 tile_counter += 1
 
-        return cls(tiles, check_consistency=False, **kwargs)
+        return cls(tiles, boundary=boundary, check_consistency=True, **kwargs)
 
     @property
     def shape(self):
         """
-        2-tuple: Shape (height/number of tiles in Y direction, width/number of tiles in X direction)
+        2-tuple : Shape (height/number of tiles in Y direction, width/number of tiles in X direction)
         of the regular mosaic.
+
         """
         return self._adjacency_matrix.shape
 
     def xy2tile(self, x, y, sref=None):
         """
+        Returns the tile intersecting with the given world system coordinates. If the coordinates are outside the
+        mosaic boundary, no tile is returned.
 
         Parameters
         ----------
@@ -1996,31 +2324,45 @@ class RegularMosaicGeometry(MosaicGeometry):
 
         Returns
         -------
-        RasterGeometry :
+        geospade.raster.Tile :
             Tile intersecting/matching with the given world system coordinates.
 
         """
-        mosaic_row, mosaic_col = self._raster_geom.xy2rc(x, y, sref=sref)
-        return self.__tile_from_rc(mosaic_row, mosaic_col)
+        # create OGR point
+        point = ogr.Geometry(ogr.wkbPoint)
+        point.AddPoint(x, y)
+        osr_sref = self.sref.osr_sref if sref is None else sref.osr_sref
+        point.AssignSpatialReference(osr_sref)
 
-    def get_neighbouring_tiles(self, tile_id):
+        tile_oi = None
+        if point.Intersects(self.boundary):  # point is inside grid definition
+            mosaic_row, mosaic_col = self._raster_geom.xy2rc(x, y, sref=sref)
+            tile_oi = self.__tile_from_rc(mosaic_row, mosaic_col)
+
+        return tile_oi
+
+    def get_neighbouring_tiles(self, tile_name, active_only=True, apply_mask=True):
         """
-        Returns all tiles being in the direct neighbourhood of the tile with the given tile ID.
+        Returns all tiles being in the direct neighbourhood of the tile with the given tile name.
 
         Parameters
         ----------
-        tile_id : str or int
-            Tile ID.
+        tile_name : str
+            Tile name.
+        active_only : bool, optional
+            If true, only active tiles are returned (default).
+        apply_mask : bool, optional
+            If true, tiles will have a mask for reflecting the relation with the exact mosaic boundary (default).
 
         Returns
         -------
-        list :
-            List of tiles being in the neighbourhood of `tile_id`.
+        list of `Tile`:
+            List of tiles being in the neighbourhood of `tile_name`.
 
         """
-        cntr_tile = self.id2tile(tile_id)
+        cntr_tile = self.name2tile(tile_name)
         mosaic_row, mosaic_col = self._raster_geom.xy2rc(cntr_tile.ul_x, cntr_tile.ul_y)
-        nbr_tiles = []
+        nbr_tiles = dict()
 
         for r in range(3):
             for c in range(3):
@@ -2032,92 +2374,55 @@ class RegularMosaicGeometry(MosaicGeometry):
                     continue
                 nbr_tile = self.__tile_from_rc(nbr_tile_r, nbr_tile_c)
                 if nbr_tile is not None:
-                    nbr_tiles.append(nbr_tile)
+                    if active_only and not self._tiles.loc[nbr_tile.name, 'active']:
+                        continue
+                    if apply_mask:
+                        nbr_tile = self._mask_tile(nbr_tile)
+                    nbr_tiles[nbr_tile.name] = nbr_tile
 
         return nbr_tiles
 
-    def slice_by_geom(self, geom, **kwargs):
+    @_align_geom(align=True)
+    def select_tiles_by_geom(self, geom, active_only=True, apply_mask=True):
         """
-        Computes an intersection figure of the mosaic and another geometry and returns its
-        (grid axes-parallel rectangle) bounding box as a mosaic geometry.
-        The tiles of the mosaic are intersected likewise.
+        Computes an intersection figure of the mosaic and another geometry and returns the tiles intersecting with this
+        figure.
 
         Parameters
         ----------
-        geom : ogr.Geometry or RasterGeometry
+        geom : ogr.Geometry
             Other geometry to intersect with.
-        **kwargs :
-            Additional keyword arguments for the `RegularMosaicGeometry` constructor,
-            e.g. `mosaic_id` or `description`.
+        active_only : bool, optional
+            If true, only active tiles are returned (default).
+        apply_mask : bool, optional
+            If true, tiles will have a mask for reflecting the relation with the exact mosaic boundary (default).
 
         Returns
         -------
-        MosaicGeometry
-            Mosaic geometry instance defined by the bounding box of the intersection geometry.
+        dict
+            Dictionary of tiles (key=tilename, value=tile object).
 
         """
-        intsctd_mosaic = None
+
         intsctd_raster_geom = self._raster_geom.slice_by_geom(geom, True, False)
         if intsctd_raster_geom is None:
-            return intsctd_mosaic
+            return None
         intsctd_mosaic_height, intsctd_mosaic_width = intsctd_raster_geom.shape
-        intsctd_tiles = []
+        selected_tiles = dict()
         for intsctd_mosaic_row in range(intsctd_mosaic_height):
             for intsctd_mosaic_col in range(intsctd_mosaic_width):
                 tile_ul_x, tile_ul_y = intsctd_raster_geom.rc2xy(intsctd_mosaic_row, intsctd_mosaic_col)
                 mosaic_row, mosaic_col = self._raster_geom.xy2rc(tile_ul_x, tile_ul_y)
                 tile = self.__tile_from_rc(mosaic_row, mosaic_col)
                 if tile is not None:
-                    intsctd_tile = tile.slice_by_geom(geom, True, False, geom_id=len(intsctd_tiles))
-                    if intsctd_tile is not None:
-                        intsctd_tiles.append(intsctd_tile)
+                    if tile is not None:
+                        if active_only and not self._tiles.loc[tile.name, 'active']:
+                            continue
+                        if apply_mask:
+                            tile = self._mask_tile(tile)
+                        selected_tiles[tile.name] = tile
 
-        intsctd_mosaic = MosaicGeometry(intsctd_tiles, check_consistency=False, parent=self, **kwargs)
-
-        return intsctd_mosaic
-
-    def subset_by_geom(self, geom, **kwargs):
-        """
-        Selects a tile-preserving subset of the mosaic according to the intersection figure of the mosaic and another
-        geometry.
-
-        Parameters
-        ----------
-        geom : ogr.Geometry or RasterGeometry
-            Other geometry to intersect with.
-        **kwargs :
-            Additional keyword arguments for the `RegularMosaicGeometry` constructor,
-            e.g. `mosaic_id` or `description`.
-
-        Returns
-        -------
-        RegularMosaicGeometry
-            Regular mosaic geometry instance defined by the bounding box of the intersection geometry.
-
-        """
-        intsctd_mosaic = None
-        intsctd_raster_geom = self._raster_geom.slice_by_geom(geom, True, False)
-        if intsctd_raster_geom is None:
-            return intsctd_mosaic
-        intsctd_mosaic_height, intsctd_mosaic_width = intsctd_raster_geom.shape
-        intsctd_tiles = []
-        for intsctd_mosaic_row in range(intsctd_mosaic_height):
-            for intsctd_mosaic_col in range(intsctd_mosaic_width):
-                tile_ul_x, tile_ul_y = intsctd_raster_geom.rc2xy(intsctd_mosaic_row, intsctd_mosaic_col)
-                mosaic_row, mosaic_col = self._raster_geom.xy2rc(tile_ul_x, tile_ul_y)
-                tile = self.__tile_from_rc(mosaic_row, mosaic_col)
-                if tile is not None:
-                    intsctd_tiles.append(tile)
-
-        intsctd_mosaic = RegularMosaicGeometry(intsctd_tiles, check_consistency=False, parent=self, **kwargs)
-
-        return intsctd_mosaic
-
-    def slice_by_xy(self, x, y, x_size=1, y_size=1, **kwargs):
-        pass
-
-    def subset_by_xy(self, x, y, x_size=1, y_size=1, **kwargs):
-        pass
+        return selected_tiles
 
     def __tile_from_rc(self, r, c):
         """
@@ -2132,15 +2437,12 @@ class RegularMosaicGeometry(MosaicGeometry):
 
         Returns
         -------
-        RasterGeometry :
+        geospade.raster.Tile :
             Tile related to the given mosaic indexes.
 
         """
         tile_idx = self._adjacency_matrix[r, c]
-        tile = None
-        if tile_idx > -1:
-            tile_id = self.tile_ids[tile_idx]
-            tile = self._tiles[tile_id]
+        tile = self._tiles.iloc[tile_idx]['tile']
         return tile
 
     def __rc_is_within(self, r, c):
@@ -2174,8 +2476,21 @@ class RegularMosaicGeometry(MosaicGeometry):
         return is_within
 
     def __check_consistency(self, tiles):
-        """ bool : True if the tiles match in pixel size, shape and spatial reference system. False otherwise. """
+        """
+        Checks if the given tiles are consistent, which is the case if they match in pixel size, shape and
+        spatial reference system.
 
+        Parameters
+        ----------
+        tiles : list of geospade.raster.Tile
+            List of tiles.
+
+        Returns
+        -------
+        is_consistent : bool
+            True if the mosaic is valid/consistent, False if not.
+
+        """
         ref_tile = tiles[0]
         x_pixel_size = ref_tile.x_pixel_size
         y_pixel_size = ref_tile.y_pixel_size

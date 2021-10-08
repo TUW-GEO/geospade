@@ -8,6 +8,7 @@ import ogr
 import cv2
 import shapely.wkt
 import numpy as np
+from PIL import Image, ImageDraw
 from numba import njit
 from copy import deepcopy
 from geospade import DECIMALS
@@ -398,13 +399,13 @@ def _fill_raster_poly(raster):
     return raster
 
 
-def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0):
+def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0, keep_shape=True):
     """
-    Rasterises a polygon defined by clockwise list of points with the edge-flag algorithm.
+    Rasterises a Shapely polygon defined by a clockwise list of points.
 
     Parameters
     ----------
-    geom : ogr.Geometry
+    geom : shapely.geometry.Polygon
         Clockwise list of x and y coordinates defining a polygon.
     x_pixel_size : float
         Absolute pixel size in X direction.
@@ -414,7 +415,10 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0):
         Output extent of the raster (x_min, y_min, x_max, y_max). If it is not set the output extent is taken from the
         given geometry.
     buffer : int, optional
-        Pixel buffer for enlarging the rasterised polygon (default is 0).
+        Pixel buffer for dilating or eroding the rasterised polygon (default is 0).
+    keep_shape : bool, optional
+        If true (default), `buffer` does not change the actual extent of the polygon. If it is false, the returned
+        raster has a shape in respect to its original extent +/- the `buffer`.
 
     Returns
     -------
@@ -424,23 +428,23 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0):
 
     Notes
     -----
-    The edge-flag algorithm was partly taken from https://de.wikipedia.org/wiki/Rasterung_von_Polygonen
-    The coordinates are always expected to refer to the upper-left corner of a pixel. If the coordinates do not match
-    the sampling, they are automatically aligned to upper-left.
+    The coordinates are always expected to refer to the upper-left corner of a pixel, in a right-hand coordinate system.
+    If the coordinates do not match the sampling, they are automatically aligned to upper-left.
+
+    For rasterising the actual polygon, PIL's `ImageDraw` class is used.
 
     """
     raster_buffer = abs(buffer)
 
     # retrieve polygon points
-    geom_sh = shapely.wkt.loads(geom.ExportToWkt())
-    geom_pts = list(geom_sh.exterior.coords)
+    geom_pts = list(geom.exterior.coords)
 
     # split tuple points into x and y coordinates
     xs, ys = list(zip(*geom_pts))
 
-    # round coordinates to lowest corner
-    xs = [int(round(x / x_pixel_size, DECIMALS)) * x_pixel_size for x in xs]
-    ys = [int(round(y / y_pixel_size, DECIMALS)) * y_pixel_size for y in ys]
+    # round coordinates to upper-left corner
+    xs = np.around(np.array(xs)/x_pixel_size, decimals=DECIMALS).astype(int) * x_pixel_size
+    ys = np.ceil(np.around(np.array(ys)/y_pixel_size, decimals=DECIMALS)).astype(int) * y_pixel_size # use ceil to round to upper corner
 
     # define extent of the polygon
     if extent is None:
@@ -448,76 +452,34 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0):
     else:
         x_min = int(round(extent[0] / x_pixel_size, DECIMALS)) * x_pixel_size
         x_max = int(round(extent[2] / x_pixel_size, DECIMALS)) * x_pixel_size
-        y_min = int(round(extent[1] / y_pixel_size, DECIMALS)) * y_pixel_size
-        y_max = int(round(extent[3] / y_pixel_size, DECIMALS)) * y_pixel_size
+        y_min = int(np.ceil(round(extent[1] / y_pixel_size, DECIMALS))) * y_pixel_size
+        y_max = int(np.ceil(round(extent[3] / y_pixel_size, DECIMALS))) * y_pixel_size
 
     # number of columns and rows (+1 to include last pixel row and column, which is lost when computing the difference)
     n_rows = int(round((y_max - y_min) / y_pixel_size, DECIMALS) + 2 * raster_buffer) + 1
     n_cols = int(round((x_max - x_min) / x_pixel_size, DECIMALS) + 2 * raster_buffer) + 1
 
     # raster with zeros
-    raster = np.zeros((n_rows, n_cols), np.uint8)
-
-    # pre-compute half pixel sizes used inside loop
-    half_x_pixel_size = np.around(x_pixel_size/2., decimals=DECIMALS)
-    half_y_pixel_size = np.around(y_pixel_size/2., decimals=DECIMALS)
-
-    # first, draw contour of polygon
-    for idx in range(1, len(xs)):  # loop over all points of the polygon
-        x_1 = xs[idx - 1]
-        x_2 = xs[idx]
-        y_1 = ys[idx - 1]
-        y_2 = ys[idx]
-        x_diff = x_2 - x_1
-        y_diff = y_2 - y_1
-        if y_diff == 0.:  # horizontal line (will be filled later on)
-            continue
-
-        k = float(x_diff)/y_diff if x_diff != 0. else None  # slope is None if the line is vertical
-
-        # define start, end and iterator y coordinate and start x coordinate
-        if y_1 < y_2:
-            y_start = y_1
-            y_end = y_2
-            x_start = x_1
-            y = y_1
-        else:
-            y_start = y_2
-            y_end = y_1
-            x_start = x_2
-            y = y_2
-
-        while abs(y - y_end) > 10**(-DECIMALS):  # iterate along polyline
-            y_s = y + half_y_pixel_size
-
-            if k is not None:
-                x_s = np.around((y_s - y_start)*k + x_start, decimals=DECIMALS)   # compute x coordinate depending on y coordinate
-            else:  # vertical -> x coordinate does not change
-                x_s = x_start
-
-            x_floor = int(x_s/x_pixel_size)*x_pixel_size
-            if (x_floor + half_x_pixel_size) <= x_s:
-                x_floor += x_pixel_size
-
-            # compute raster indexes
-            i = int(round(abs(y_s - y_max) / y_pixel_size, DECIMALS) + raster_buffer)
-            j = int(round(abs(x_floor - x_min) / x_pixel_size, DECIMALS) + raster_buffer)
-            raster[i, j] = ~raster[i, j]
-            y = y + y_pixel_size  # increase y with pixel size
-
-    # loop over rows and fill raster from left to right
-    raster = _fill_raster_poly(raster)
+    mask_img = Image.new('1', (n_cols, n_rows), 0)
+    rows = (np.around(np.abs(ys - y_max) / y_pixel_size, decimals=DECIMALS) + raster_buffer).astype(int)
+    cols = (np.around(np.abs(xs - x_min) / x_pixel_size, decimals=DECIMALS) + raster_buffer).astype(int)
+    ImageDraw.Draw(mask_img).polygon(list(zip(cols, rows)), outline=1, fill=1)
+    mask_ar = np.array(mask_img).astype(np.uint8)
 
     if buffer != 0.:
         kernel = np.ones((3, 3), np.uint8)
         if buffer < 0:
-            raster = cv2.erode(raster, kernel, iterations=raster_buffer)
+            mask_ar = cv2.erode(mask_ar, kernel, iterations=raster_buffer)
         elif buffer > 0:
-            raster = cv2.dilate(raster, kernel, iterations=raster_buffer)
+            mask_ar = cv2.dilate(mask_ar, kernel, iterations=raster_buffer)
 
-        raster = raster[raster_buffer:-raster_buffer, raster_buffer:-raster_buffer]
+        if keep_shape:
+            mask_ar = mask_ar[raster_buffer:-raster_buffer, raster_buffer:-raster_buffer]
+        else:
+            if buffer < 0:
+                mask_ar = mask_ar[raster_buffer*2:-raster_buffer*2, raster_buffer*2:-raster_buffer*2]
 
-    return raster
+    return mask_ar
 
 
 def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px'):

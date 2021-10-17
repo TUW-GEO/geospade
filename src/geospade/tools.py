@@ -9,7 +9,6 @@ import cv2
 import shapely.wkt
 import numpy as np
 from PIL import Image, ImageDraw
-from numba import njit
 from copy import deepcopy
 from geospade import DECIMALS
 from geospade.errors import SrefUnknown

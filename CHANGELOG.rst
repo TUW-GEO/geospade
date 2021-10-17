@@ -2,10 +2,11 @@
 Changelog
 =========
 
-Version 0.1.2
+Version 0.2.0
 =============
 
 - corrected wrong pixel window definition in `slice_by_rc()`
+- added support for GDAL 3
 
 Version 0.1.1
 =============

@@ -2,6 +2,11 @@
 Changelog
 =========
 
+Version 0.1.2
+=============
+
+- corrected wrong pixel window definition in `slice_by_rc()`
+
 Version 0.1.1
 =============
 

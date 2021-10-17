@@ -368,37 +368,6 @@ def _round_geom_coords(geom, decimals):
     return geometry_out
 
 
-@njit
-def _fill_raster_poly(raster):
-    """
-    Fills rasterised polygon.
-
-    Parameters
-    ----------
-    raster : np.ndarray
-        2D, binary numpy array including rasterised polygon boundaries (1=polygon, 0=background).
-
-    Returns
-    -------
-    raster : np.ndarray
-        2D, binary numpy array including rasterised polygon (1=polygon, 0=background).
-
-    """
-    n_rows, n_cols = raster.shape
-    for i in range(n_rows):
-        is_inner = False
-        for j in range(n_cols):
-            if raster[i, j]:
-                is_inner = ~is_inner
-
-            if is_inner:
-                raster[i, j] = 1
-            else:
-                raster[i, j] = 0
-
-    return raster
-
-
 def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0, keep_shape=True):
     """
     Rasterises a Shapely polygon defined by a clockwise list of points.

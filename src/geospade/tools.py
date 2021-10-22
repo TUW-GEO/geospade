@@ -9,7 +9,6 @@ import cv2
 import shapely.wkt
 import numpy as np
 from PIL import Image, ImageDraw
-from numba import njit
 from copy import deepcopy
 from geospade import DECIMALS
 from geospade.errors import SrefUnknown
@@ -366,37 +365,6 @@ def _round_geom_coords(geom, decimals):
     geometry_out.AddGeometry(rounded_ring)
 
     return geometry_out
-
-
-@njit
-def _fill_raster_poly(raster):
-    """
-    Fills rasterised polygon.
-
-    Parameters
-    ----------
-    raster : np.ndarray
-        2D, binary numpy array including rasterised polygon boundaries (1=polygon, 0=background).
-
-    Returns
-    -------
-    raster : np.ndarray
-        2D, binary numpy array including rasterised polygon (1=polygon, 0=background).
-
-    """
-    n_rows, n_cols = raster.shape
-    for i in range(n_rows):
-        is_inner = False
-        for j in range(n_cols):
-            if raster[i, j]:
-                is_inner = ~is_inner
-
-            if is_inner:
-                raster[i, j] = 1
-            else:
-                raster[i, j] = 0
-
-    return raster
 
 
 def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0, keep_shape=True):

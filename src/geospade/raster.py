@@ -806,7 +806,7 @@ class RasterGeometry:
 
         ul_x, ul_y = self.rc2xy(min_row, min_col, px_origin='ul')
         geotrans = build_geotransform(ul_x, ul_y, self.x_pixel_size, -self.y_pixel_size, 0)
-        n_rows, n_cols = max_row - min_row + 1, max_col - min_col + 1  # +1 because max_row and max_col are set for Python indexing
+        n_rows, n_cols = max_row - min_row, max_col - min_col
         intsct_raster_geom = RasterGeometry(n_rows, n_cols, self.sref, geotrans, px_origin='ul',
                                             parent=self, **kwargs)
 
@@ -1342,8 +1342,8 @@ class RasterGeometry:
                 max_s_idx = item[1]
 
             if len(item) == 2:
-                height = max_f_idx - min_f_idx - 1
-                width = max_s_idx - min_s_idx - 1
+                height = max_f_idx - min_f_idx
+                width = max_s_idx - min_s_idx
                 intsct_raster_geom = self.slice_by_rc(min_f_idx, min_s_idx, height, width, inplace=False)
             elif len(item) == 3:
                 sref = item[2]

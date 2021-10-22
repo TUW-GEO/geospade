@@ -160,7 +160,7 @@ class SpatialRef:
 
         """
         proj4_params = self.to_proj4_dict()
-        proj4_name = proj4_params['proj']
+        proj4_name = proj4_params.get('proj')
         central_longitude = proj4_params.get('lon_0', 0.)
         central_latitude = proj4_params.get('lat_0', 0.)
         false_easting = proj4_params.get('x_0', 0.)

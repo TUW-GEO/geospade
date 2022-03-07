@@ -1,8 +1,8 @@
 """ Coordinate Reference System (CRS) module. """
 
 import re
-import osr
 import warnings
+from osgeo import osr
 from pyproj.crs import CRS
 from cartopy import crs as ccrs
 

@@ -1,8 +1,8 @@
 """ Module collecting all functions dealing with coordinate transformations. """
 
 import warnings
-import osr
 import numpy as np
+from osgeo import osr
 from geospade import DECIMALS
 from geospade.tools import _round_geom_coords
 
@@ -166,6 +166,8 @@ def transform_geom(geom, other_sref):
     geometry_out.TransformTo(other_sref.osr_sref)
     # round geometry coordinates
     geometry_out = _round_geom_coords(geometry_out, DECIMALS)
+    # assign new spatial reference system
+    geometry_out.AssignSpatialReference(other_sref.osr_sref)
 
     return geometry_out
 

@@ -2,24 +2,26 @@
 
 import os
 import sys
-import ogr
 import copy
+import warnings
 import cartopy
 import pandas as pd
 import numpy as np
 import shapely
 import json
+from osgeo import ogr
 from collections import OrderedDict
 import shapely.wkt
 from shapely import affinity
 from shapely.geometry import Polygon
-from shapely.ops import cascaded_union
+from shapely.ops import unary_union
 from matplotlib.patches import Polygon as PolygonPatch
 
 from geospade.tools import polar_point
 from geospade.tools import is_rectangular
 from geospade.tools import bbox_to_polygon
 from geospade.tools import rasterise_polygon
+from geospade.tools import rel_extent
 from geospade.transform import build_geotransform
 from geospade.transform import xy2ij
 from geospade.transform import ij2xy
@@ -799,14 +801,14 @@ class RasterGeometry:
 
         """
 
-        max_row = row + height
-        max_col = col + width
+        max_row = row + height - 1  # -1 because of Python indexing
+        max_col = col + width - 1  # -1 because of Python indexing
         min_row, min_col, max_row, max_col = self.__align_pixel_extent(min_row=row, min_col=col,
                                                                        max_row=max_row, max_col=max_col)
 
         ul_x, ul_y = self.rc2xy(min_row, min_col, px_origin='ul')
         geotrans = build_geotransform(ul_x, ul_y, self.x_pixel_size, -self.y_pixel_size, 0)
-        n_rows, n_cols = max_row - min_row, max_col - min_col
+        n_rows, n_cols = max_row - min_row + 1, max_col - min_col + 1
         intsct_raster_geom = RasterGeometry(n_rows, n_cols, self.sref, geotrans, px_origin='ul',
                                             parent=self, **kwargs)
 
@@ -1197,7 +1199,6 @@ class RasterGeometry:
             Pixel extent not crossing the bounds of the raster geometry.
 
         """
-        max_row = max_row if max_row is not None else self.n_rows-1
         min_row = max(0, min_row)
         min_col = max(0, min_col)
         max_row = min(self.n_rows-1, max_row)  # -1 because of Python indexing
@@ -1572,7 +1573,7 @@ class MosaicGeometry:
 
         if boundary is None:
             tile_boundaries = [tile.boundary_shapely for tile in tiles]
-            boundary = ogr.CreateGeometryFromWkt(cascaded_union(tile_boundaries).wkt)
+            boundary = ogr.CreateGeometryFromWkt(unary_union(tile_boundaries).wkt)
             boundary.AssignSpatialReference(self.sref.osr_sref)
         self.boundary = boundary
 
@@ -1602,6 +1603,23 @@ class MosaicGeometry:
     def tile_names(self):
         """ list : All active tile names of the mosaic. """
         return list(self._tiles[self._tiles['active']].index)
+
+    @classmethod
+    def _from_sliced_tiles(cls, tiles):
+        """
+        Helper class method to keep tiles, which have been sliced/touched, attached to a mosaic.
+
+        Parameters
+        ----------
+        tiles : list of geospade.raster.Tile
+            Tiles which have been sliced and are thus children of original tiles from the mosaic.
+
+        Returns
+        -------
+        geospade.raster.MosaicGeometry
+
+        """
+        return cls(tiles, check_consistency=False)
 
     @classmethod
     def from_definition(cls, definition, tile_class=Tile, check_consistency=True):
@@ -1708,6 +1726,9 @@ class MosaicGeometry:
                 if tile.intersects(point):  # point is inside tile
                     tile_oi = self._mask_tile(tile)
                     break
+        else:
+            wrn_msg = f"The given coordinate tuple ({x},{y}) is not within the mosaic boundary."
+            warnings.warn(wrn_msg)
 
         return tile_oi
 
@@ -1823,7 +1844,7 @@ class MosaicGeometry:
         return selected_tiles
 
     @_align_geom(align=True)
-    def slice_tiles_by_geom(self, geom, active_only=True):
+    def slice_mosaic_by_geom(self, geom, active_only=True):
         """
         Computes an intersection figure of the mosaic and another geometry and returns a list of intersected tiles.
 
@@ -1845,18 +1866,23 @@ class MosaicGeometry:
 
         """
         tiles = self.select_tiles_by_geom(geom, active_only)
-        intsctd_tiles = dict()
+        intsctd_tiles = []
         for i, tile in enumerate(tiles.values()):
             # intersected tile does not have a relation with the original mosaic tile anymore
-            intsctd_tile = tile.slice_by_geom(geom, True, False, name=i,
+            intsctd_tile = tile.slice_by_geom(geom, snap_to_grid=True, inplace=False, name=i,
                                               mosaic_topology=None,
-                                              active=False)
-            intsctd_tiles[intsctd_tile.name] = intsctd_tile
+                                              active=True)
+            origin = (tile.ul_x, tile.ul_y)
+            min_col, min_row, max_col, max_row = rel_extent(origin, intsctd_tile.coord_extent,
+                                                            x_pixel_size=intsctd_tile.x_pixel_size,
+                                                            y_pixel_size=intsctd_tile.y_pixel_size)
+            intsctd_tile.mask = tile.mask[min_row: max_row + 1, min_col: max_col + 1]
+            intsctd_tiles.append(intsctd_tile)
 
-        return intsctd_tiles
+        return self._from_sliced_tiles(intsctd_tiles)
 
     @_align_geom(align=True)
-    def slice_by_geom(self, geom):
+    def select_by_geom(self, geom):
         """
         Activates all mosaic tiles intersecting with the given geometry.
 
@@ -1871,7 +1897,25 @@ class MosaicGeometry:
         self._tiles['active'] = False
         self._tiles.loc[tile_names, 'active'] = True
 
-    def filter_tile_metadata(self, metadata):
+        return self
+
+    def select_by_tile_names(self, tile_names):
+        """
+        Activates all mosaic tiles with the given names.
+
+        Parameters
+        ----------
+        tile_names : list of str
+            List of tile names.
+
+        """
+        self._tiles['active'] = False
+        for tile_name in tile_names:
+            self._tiles.loc[tile_name, 'active'] = True
+
+        return self
+
+    def select_by_tile_metadata(self, metadata):
         """
         Activates all mosaic tiles matching the given metadata dictionary.
 
@@ -1891,6 +1935,8 @@ class MosaicGeometry:
 
         self._tiles['active'] = False
         self._tiles.loc[tile_df.index, 'active'] = True
+
+        return self
 
     def plot(self, ax=None, facecolor='tab:red', edgecolor='black', edgewidth=1, alpha=1., proj=None,
              show=False, label_tiles=False, add_country_borders=True, extent=None, active_only=True,

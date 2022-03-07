@@ -4,10 +4,10 @@ interaction.
 
 """
 
-import ogr
-import cv2
+#import cv2
 import shapely.wkt
 import numpy as np
+from osgeo import ogr
 from PIL import Image, ImageDraw
 from copy import deepcopy
 from geospade import DECIMALS
@@ -436,16 +436,16 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0, k
 
     if buffer != 0.:
         kernel = np.ones((3, 3), np.uint8)
-        if buffer < 0:
-            mask_ar = cv2.erode(mask_ar, kernel, iterations=raster_buffer)
-        elif buffer > 0:
-            mask_ar = cv2.dilate(mask_ar, kernel, iterations=raster_buffer)
-
-        if keep_shape:
-            mask_ar = mask_ar[raster_buffer:-raster_buffer, raster_buffer:-raster_buffer]
-        else:
-            if buffer < 0:
-                mask_ar = mask_ar[raster_buffer*2:-raster_buffer*2, raster_buffer*2:-raster_buffer*2]
+        # if buffer < 0:
+        #     mask_ar = cv2.erode(mask_ar, kernel, iterations=raster_buffer)
+        # elif buffer > 0:
+        #     mask_ar = cv2.dilate(mask_ar, kernel, iterations=raster_buffer)
+        #
+        # if keep_shape:
+        #     mask_ar = mask_ar[raster_buffer:-raster_buffer, raster_buffer:-raster_buffer]
+        # else:
+        #     if buffer < 0:
+        #         mask_ar = mask_ar[raster_buffer*2:-raster_buffer*2, raster_buffer*2:-raster_buffer*2]
 
     return mask_ar
 
@@ -488,10 +488,10 @@ def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px'):
     if unit == 'sr':
         return rel_extent
     elif unit == 'px':
-        return np.around(rel_extent[0] / x_pixel_size, decimals=DECIMALS).astype(int),\
-               np.around(rel_extent[3] / y_pixel_size, decimals=DECIMALS).astype(int),\
-               np.around(rel_extent[2] / x_pixel_size, decimals=DECIMALS).astype(int),\
-               np.around(rel_extent[1] / y_pixel_size, decimals=DECIMALS).astype(int)
+        return int(abs(np.around(rel_extent[0] / x_pixel_size, decimals=DECIMALS))),\
+               int(abs(np.around(rel_extent[3] / y_pixel_size, decimals=DECIMALS))),\
+               int(abs(np.around(rel_extent[2] / x_pixel_size, decimals=DECIMALS))),\
+               int(abs(np.around(rel_extent[1] / y_pixel_size, decimals=DECIMALS)))
     else:
         err_msg = "Unit {} is unknown. Please use 'px' or 'sr'.".format(unit)
         raise ValueError(err_msg)

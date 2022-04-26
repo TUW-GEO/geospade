@@ -1358,17 +1358,36 @@ class RasterGeometry:
 
         return intsct_raster_geom
 
-    def __deepcopy__(self, memodict={}):
+    def __deepcopy__(self, memo):
         """
         Deepcopy method of `RasterGeometry` class.
 
         Parameters
         ----------
-        memodict : dict, optional
+        memo : dict, optional
 
         Returns
         -------
         geospade.raster.RasterGeometry
+
+        """
+        if type(self).__name__ == "RasterGeometry":
+            return self.__deepcopy(memo)
+        else:
+            return self._deepcopy(memo)
+
+    def __deepcopy(self, memo):
+        """
+        Deepcopy helper method of the `RasterGeometry` class.
+
+        Parameters
+        ----------
+        memo : dict
+
+        Returns
+        -------
+        RasterGeometry
+            Deepcopy of a raster geometry.
 
         """
 
@@ -1382,6 +1401,10 @@ class RasterGeometry:
         parent = self.parent
 
         return RasterGeometry(n_rows, n_cols, sref, geotrans, name, description, px_origin, parent)
+
+    def _deepcopy(self, memo):
+        """ Placeholder for a deepcopy method of the child class. """
+        raise NotImplementedError('Child class needs to implement a deepcopy method!')
 
 
 class Tile(RasterGeometry):
@@ -1520,6 +1543,62 @@ class Tile(RasterGeometry):
 
         return tile_dict
 
+    def __deepcopy__(self, memo):
+        """
+        Deepcopy method of `Tile` class.
+
+        Parameters
+        ----------
+        memo : dict, optional
+
+        Returns
+        -------
+        geospade.raster.Tile
+
+        """
+        if type(self).__name__ == "Tile":
+            return self.__deepcopy(memo)
+        else:
+            return self._deepcopy(memo)
+
+    def __deepcopy(self, memo):
+        """
+        Deepcopy helper method of the `Tile` class.
+
+        Parameters
+        ----------
+        memo : dict
+
+        Returns
+        -------
+        Tile
+            Deepcopy of a tile.
+
+        """
+
+        n_rows = self.n_rows
+        n_cols = self.n_cols
+        sref = copy.deepcopy(self.sref)
+        geotrans = copy.deepcopy(self.geotrans)
+        name = self.name
+        description = self.description
+        px_origin = self.px_origin
+        parent = self.parent
+        mosaic_topology = self.mosaic_topology
+        active = self.active
+        metadata = copy.deepcopy(self.metadata)
+        mask = copy.deepcopy(self._mask)
+
+        tile = Tile(n_rows, n_cols, sref, geotrans, mosaic_topology, active, metadata, name, description, px_origin,
+                    parent)
+        tile._mask = mask
+
+        return tile
+
+    def _deepcopy(self, memo):
+        """ Placeholder for a deepcopy method of the child class. """
+        raise NotImplementedError('Child class needs to implement a deepcopy method!')
+
 
 class MosaicGeometry:
     """
@@ -1529,15 +1608,20 @@ class MosaicGeometry:
     """
     __type = 'irregular'
 
-    def __init__(self, tiles, boundary=None, adjacency_matrix=None, name='', description="",
-                 check_consistency=True):
+    def __init__(self, tiles, boundary=None, adjacency_matrix=None, name="", description="",
+                 check_consistency=True, **kwargs):
         """
         Constructor of `MosaicGeometry` class.
 
         Parameters
         ----------
-        tiles : list of geospade.raster.Tile
-            List of tiles.
+        tiles : pd.Dataframe
+            Data frame containing at least the following columns:
+                - 'tile': geospade.raster.Tile instances
+                - 'active': flag defining if a tile is active or not
+                - 'topology' : spatial relationship of a tile with the mosaic boundary,
+                               i.e. 'INNER', 'OUTER', or 'BOUNDARY'
+            The index of the data frame is the tile name/ID of the corresponding tile.
         boundary : ogr.Geometry, optional
             Strictly defined boundary of the mosaic, i.e. it defines where coordinates are valid/belong to the grid and
             where not. If it is None, the cascaded union of all tiles defines the boundary.
@@ -1565,24 +1649,22 @@ class MosaicGeometry:
                 err_msg = "Tiles are not allowed to overlap!"
                 raise ValueError(err_msg)
 
-        ref_tile = tiles[0]
+        ref_tile = tiles['tile'][0]
         self.sref = ref_tile.sref
         self.ori = ref_tile.ori
         self.name = name
         self.description = description
+        self._tiles = tiles
 
         if boundary is None:
-            tile_boundaries = [tile.boundary_shapely for tile in tiles]
+            tile_boundaries = [tile.boundary_shapely for tile in self._tiles['tile']]
             boundary = ogr.CreateGeometryFromWkt(unary_union(tile_boundaries).wkt)
             boundary.AssignSpatialReference(self.sref.osr_sref)
         self.boundary = boundary
 
         self._adjacency_matrix = adjacency_matrix
         if adjacency_matrix is None:
-            self._adjacency_matrix = self.__build_adjacency_matrix(tiles)
-
-        # create dataframe as an internal tile inventory
-        self._tiles = self.__build_df(tiles)
+            self._adjacency_matrix = self.__build_adjacency_matrix()
 
     @property
     def all_tiles(self):
@@ -1605,24 +1687,40 @@ class MosaicGeometry:
         return list(self._tiles[self._tiles['active']].index)
 
     @classmethod
-    def _from_sliced_tiles(cls, tiles):
+    def from_tile_list(cls, tiles, boundary=None, adjacency_matrix=None, name="", description="",
+                       check_consistency=True, **kwargs):
         """
-        Helper class method to keep tiles, which have been sliced/touched, attached to a mosaic.
+        Helper method to initiate a mosaic from a list of tiles.
 
         Parameters
         ----------
         tiles : list of geospade.raster.Tile
-            Tiles which have been sliced and are thus children of original tiles from the mosaic.
+            List of tiles.
+        boundary : ogr.Geometry, optional
+            Strictly defined boundary of the mosaic, i.e. it defines where coordinates are valid/belong to the grid and
+            where not. If it is None, the cascaded union of all tiles defines the boundary.
+        adjacency_matrix : np.array, optional
+            Adjacency matrix given as a boolean array defining the direct neighbourhood relationships of the given tiles.
+            It needs to have the same size as the given number of tiles. If it is None, an adjacency matrix is created
+            on-the-fly (default).
+        name : str, optional
+            Name of the mosaic.
+        description : string, optional
+            Verbal description of the mosaic (defaults to "").
+        check_consistency : bool, optional
+            If True, the tiles are checked for consistency, i.e. to be non-overlapping (defaults to True).
 
         Returns
         -------
         geospade.raster.MosaicGeometry
 
         """
-        return cls(tiles, check_consistency=False)
+
+        return cls(cls._build_tile_df(tiles), boundary=boundary, adjacency_matrix=adjacency_matrix, name=name,
+                   description=description, check_consistency=check_consistency, **kwargs)
 
     @classmethod
-    def from_definition(cls, definition, tile_class=Tile, check_consistency=True):
+    def from_definition(cls, definition, check_consistency=True):
         """
         Creates a mosaic geometry from a human-readable mosaic definition, which is a
         dictionary containing the following elements:
@@ -1631,6 +1729,7 @@ class MosaicGeometry:
             - 'name'
             - 'description'
             - 'adjacency_matrix'
+            - 'tile_class'
             - 'tiles'
 
         The expected values can be taken from the `MosaicGeometry`, `Tile`, and `RasterGeometry` constructor docs.
@@ -1639,8 +1738,6 @@ class MosaicGeometry:
         ----------
         definition : dict
             Human-readable definition of a mosaic.
-        tile_class : class, optional
-            Class inheriting from `Tile` (default).
         check_consistency : bool, optional
             If True, the tiles are checked for consistency, i.e. to be non-overlapping (defaults to True).
 
@@ -1660,13 +1757,20 @@ class MosaicGeometry:
         adjacency_matrix = None if definition['adjacency_matrix'] is None else np.array(definition['adjacency_matrix'])
 
         tiles = []
+        tile_class_name = definition['tile_class']
+        tile_class = globals().get(tile_class_name)
+        if tile_class is None:
+            err_msg = "Tile class '{}' must be imported.".format(tile_class_name)
+            raise ImportError(err_msg)
+
         for key in definition['tiles'].keys():
             tiles.append(tile_class.from_definition(definition['tiles'][key]))
 
-        return cls(tiles, mosaic_boundary, adjacency_matrix, mosaic_name, description, check_consistency)
+        return cls.from_tile_list(tiles, boundary=mosaic_boundary, adjacency_matrix=adjacency_matrix,
+                                  name=mosaic_name, description=description, check_consistency=check_consistency)
 
     @classmethod
-    def from_json(cls, filepath, tile_class=Tile, check_consistency=True):
+    def from_json(cls, filepath, check_consistency=True):
         """
         Creates a mosaic geometry from disk.
 
@@ -1674,8 +1778,6 @@ class MosaicGeometry:
         ----------
         filepath : str
             Full JSON file path.
-        tile_class : class, optional
-            Class inheriting from `Tile` (default).
         check_consistency : bool, optional
             If True, the tiles are checked for consistency, i.e. to be non-overlapping (defaults to True).
 
@@ -1691,7 +1793,7 @@ class MosaicGeometry:
         with open(filepath, 'r') as def_file:
             definition = json.load(def_file)
 
-        return cls.from_definition(definition, tile_class, check_consistency)
+        return cls.from_definition(definition, check_consistency)
 
     def xy2tile(self, x, y, sref=None):
         """
@@ -1844,9 +1946,10 @@ class MosaicGeometry:
         return selected_tiles
 
     @_align_geom(align=True)
-    def slice_mosaic_by_geom(self, geom, active_only=True):
+    def slice_by_geom(self, geom, active_only=True, inplace=True, name="", description=""):
         """
-        Computes an intersection figure of the mosaic and another geometry and returns a list of intersected tiles.
+        Computes an intersection figure of the mosaic and another geometry, which is a new mosaic only containing tiles
+        intersecting with the given geometry.
 
         Parameters
         ----------
@@ -1854,17 +1957,28 @@ class MosaicGeometry:
             Other geometry to intersect with.
         active_only : bool, optional
             If true, only active tiles are returned (default).
+        inplace : bool, optional
+            If true, the current mosaic is modified. If false, a new mosaic instance will be returned.
+        name : str, optional
+            Name of the sliced mosaic.
+        description : string, optional
+            Verbal description of the sliced mosaic (defaults to "").
 
         Returns
         -------
-        dict
-            Dictionary of intersected tiles (key=tilename, value=tile object).
+        MosaicGeometry :
+            Sliced mosaic.
 
         Notes
         -----
-        This operation dissolves the relationship between the mosaic and a tile.
+        This operation dissolves the relationship (in terms of names/IDs) between the mosaic and a tile.
 
         """
+        if not inplace:
+            new_mosaic = copy.deepcopy(self)
+            return new_mosaic.slice_by_geom(geom, active_only=active_only, inplace=True, name=name,
+                                            description=description)
+
         tiles = self.select_tiles_by_geom(geom, active_only)
         intsctd_tiles = []
         for i, tile in enumerate(tiles.values()):
@@ -1879,10 +1993,16 @@ class MosaicGeometry:
             intsctd_tile.mask = tile.mask[min_row: max_row + 1, min_col: max_col + 1]
             intsctd_tiles.append(intsctd_tile)
 
-        return self._from_sliced_tiles(intsctd_tiles)
+        self.name = name
+        self.description = description
+        self._tiles = self._build_tile_df(intsctd_tiles)
+        self.boundary = self.boundary
+        self._adjacency_matrix = self.__build_adjacency_matrix()
+
+        return self
 
     @_align_geom(align=True)
-    def select_by_geom(self, geom):
+    def select_by_geom(self, geom, inplace=True):
         """
         Activates all mosaic tiles intersecting with the given geometry.
 
@@ -1890,8 +2010,19 @@ class MosaicGeometry:
         ----------
         geom : ogr.Geometry or geospade.raster.RasterGeometry
             Other geometry to intersect with.
+        inplace : bool, optional
+            If true, the current mosaic is modified. If false, a new mosaic instance will be returned.
+
+        Returns
+        -------
+        MosaicGeometry :
+            Mosaic with tiles being active according to the intersection between the mosaic and the given geometry.
 
         """
+        if not inplace:
+            new_mosaic = copy.deepcopy(self)
+            return new_mosaic.select_by_geom(geom, inplace=True)
+
         tiles = self.select_tiles_by_geom(geom, False, False)
         tile_names = list(tiles.keys())
         self._tiles['active'] = False
@@ -1899,7 +2030,7 @@ class MosaicGeometry:
 
         return self
 
-    def select_by_tile_names(self, tile_names):
+    def select_by_tile_names(self, tile_names, inplace=True):
         """
         Activates all mosaic tiles with the given names.
 
@@ -1907,15 +2038,26 @@ class MosaicGeometry:
         ----------
         tile_names : list of str
             List of tile names.
+        inplace : bool, optional
+            If true, the current mosaic is modified. If false, a new mosaic instance will be returned.
+
+        Returns
+        -------
+        MosaicGeometry :
+            Mosaic with tiles being active according to the given tile names.
 
         """
+        if not inplace:
+            new_mosaic = copy.deepcopy(self)
+            return new_mosaic.select_by_tile_names(tile_names, inplace=True)
+
         self._tiles['active'] = False
         for tile_name in tile_names:
             self._tiles.loc[tile_name, 'active'] = True
 
         return self
 
-    def select_by_tile_metadata(self, metadata):
+    def select_by_tile_metadata(self, metadata, inplace=True):
         """
         Activates all mosaic tiles matching the given metadata dictionary.
 
@@ -1923,8 +2065,19 @@ class MosaicGeometry:
         ----------
         metadata : dict
             Tile metadata dictionary.
+        inplace : bool, optional
+            If true, the current mosaic is modified. If false, a new mosaic instance will be returned.
+
+        Returns
+        -------
+        MosaicGeometry :
+            Mosaic with tiles being active according to the given tile metadata.
 
         """
+        if not inplace:
+            new_mosaic = copy.deepcopy(self)
+            return new_mosaic.select_by_tile_metadata(metadata, inplace=True)
+
         tile_df = self._tiles
         for key, value in metadata.items():
             if key not in self._tiles.columns:
@@ -2019,6 +2172,7 @@ class MosaicGeometry:
         definition['type'] = self.__type
         definition['adjacency_matrix'] = self._adjacency_matrix.tolist()
         definition['boundary'] = self.boundary.ExportToWkt()
+        definition['tile_class'] = type(self._tiles['tile'][0]).__name__
 
         for i, tile in enumerate(self.all_tiles):
             tile.active = self._tiles.iloc[i]['active']
@@ -2071,7 +2225,8 @@ class MosaicGeometry:
 
         return tile
 
-    def __build_df(self, tiles):
+    @staticmethod
+    def _build_tile_df(tiles):
         """
         Converts a list of tiles to a data frame.
 
@@ -2107,12 +2262,13 @@ class MosaicGeometry:
 
         return pd.DataFrame(tile_dict, index=index)
 
-    def __build_adjacency_matrix(self, tiles):
+    def __build_adjacency_matrix(self):
         """
         np.array : 2D numpy array representing an adjacency matrix, i.e. it contains information which tiles lay
         within the direct neighbourhood of one tile.
 
         """
+        tiles = self._tiles['tile']
         n_tiles = len(tiles)
         adjacency_matrix = np.zeros((n_tiles, n_tiles), dtype=bool)
         for i in range(n_tiles):
@@ -2124,14 +2280,19 @@ class MosaicGeometry:
 
         return adjacency_matrix
 
-    def __check_consistency(self, tiles):
+    def __check_consistency(self, tile_df):
         """
         Checks if the given tiles are consistent, which is the case if they do not overlap.
 
         Parameters
         ----------
-        tiles : list of geospade.raster.Tile
-            List of tiles.
+        tile_df : pd.Dataframe
+            Data frame containing at least the following columns:
+                - 'tile': geospade.raster.Tile instances
+                - 'active': flag defining if a tile is active or not
+                - 'topology' : spatial relationship of a tile with the mosaic boundary,
+                               i.e. 'INNER', 'OUTER', or 'BOUNDARY'
+            The index of the data frame is the tile name/ID of the corresponding tile.
 
         Returns
         -------
@@ -2139,6 +2300,7 @@ class MosaicGeometry:
             True if the mosaic is valid/consistent, False if not.
 
         """
+        tiles = tile_df['tile']
         is_consistent = True
         n_tiles = len(tiles)
         for i in range(n_tiles):
@@ -2201,6 +2363,52 @@ class MosaicGeometry:
 
         return ret_geom
 
+    def __deepcopy__(self, memo):
+        """
+        Deepcopy method of the `MosaicGeometry` class.
+
+        Parameters
+        ----------
+        memo : dict
+
+        Returns
+        -------
+        MosaicGeometry
+            Deepcopy of a mosaic.
+
+        """
+        if type(self).__name__ == "MosaicGeometry":
+            return self.__deepcopy(memo)
+        else:
+            return self._deepcopy(memo)
+
+    def __deepcopy(self, memo):
+        """
+        Deepcopy helper method of the `MosaicGeometry` class.
+
+        Parameters
+        ----------
+        memo : dict
+
+        Returns
+        -------
+        MosaicGeometry
+            Deepcopy of a mosaic.
+
+        """
+        tiles = copy.deepcopy(self._tiles)
+        boundary = self.boundary.Clone()
+        adjacency_matrix = copy.deepcopy(self._adjacency_matrix)
+        name = self.name
+        description = self.description
+
+        return MosaicGeometry(tiles, boundary=boundary, adjacency_matrix=adjacency_matrix, name=name,
+                              description=description, check_consistency=False)
+
+    def _deepcopy(self, memo):
+        """ Placeholder for a deepcopy method of the child class. """
+        raise NotImplementedError('Child class needs to implement a deepcopy method!')
+
 
 class RegularMosaicGeometry(MosaicGeometry):
     """
@@ -2210,14 +2418,20 @@ class RegularMosaicGeometry(MosaicGeometry):
     """
     __type = 'regular'
 
-    def __init__(self, tiles, boundary=None, adjacency_matrix=None, name=None, description="", check_consistency=True):
+    def __init__(self, tiles, boundary=None, adjacency_matrix=None, name="", description="", check_consistency=True,
+                 **kwargs):
         """
         Constructor of `RegularMosaicGeometry` class.
 
         Parameters
         ----------
-        tiles : list of geospade.raster.Tile
-            List of tiles.
+        tiles : pd.Dataframe
+            Data frame containing at least the following columns:
+                - 'tile': geospade.raster.Tile instances
+                - 'active': flag defining if a tile is active or not
+                - 'topology' : spatial relationship of a tile with the mosaic boundary,
+                               i.e. 'INNER', 'OUTER', or 'BOUNDARY'
+            The index of the data frame is the tile name/ID of the corresponding tile.
         boundary : ogr.Geometry, optional
             Strictly defined boundary of the mosaic, i.e. it defines where coordinates are valid/belong to the grid and
             where not. If it is None, the cascaded union of all tiles defines the boundary.
@@ -2241,15 +2455,12 @@ class RegularMosaicGeometry(MosaicGeometry):
                 err_msg = "Tiles differ in their shape."
                 raise ValueError(err_msg)
 
-        if adjacency_matrix is None:
-            adjacency_matrix = self.__build_adjacency_matrix(tiles)
-
         super(RegularMosaicGeometry, self).__init__(tiles, boundary, adjacency_matrix, name, description,
-                                                    check_consistency)
+                                                    check_consistency, **kwargs)
 
-        ul_xs, ul_ys = zip(*[(tile.ul_x, tile.ul_y) for tile in tiles])
+        ul_xs, ul_ys = zip(*[(tile.ul_x, tile.ul_y) for tile in tiles['tile']])
         ul_x, ul_y = min(ul_xs), max(ul_ys)
-        ref_tile = tiles[0]
+        ref_tile = tiles['tile'][0]
         self.x_pixel_size = ref_tile.x_pixel_size
         self.y_pixel_size = ref_tile.y_pixel_size
         geotrans = ref_tile.geotrans
@@ -2263,7 +2474,8 @@ class RegularMosaicGeometry(MosaicGeometry):
     @classmethod
     def from_rectangular_definition(cls, n_rows, n_cols, x_tile_size, y_tile_size, sref,
                                     geotrans=(0, 1, 0, 0, 0, 1), tile_class=Tile, tile_kwargs=None,
-                                    name_frmt="S{:03d}W{:03d}", boundary=None, **kwargs):
+                                    name_frmt="S{:03d}W{:03d}", boundary=None, name="", description="",
+                                    **kwargs):
         """
         Creates a `RegularMosaicGeometry` instance from a well-defined definition of mosaic, i.e. origin, tile sizes,
         number of tiles and spatial reference system.
@@ -2290,6 +2502,10 @@ class RegularMosaicGeometry(MosaicGeometry):
         name_frmt : str, optional
             Formatter string for the tile name containing placeholders for two arguments, the mosaic row, and the
             mosaic col (defaults to "S{:03d}W{:03d}").
+        name : str, optional
+            Name of the mosaic.
+        description : string, optional
+            Verbal description of the mosaic geometry (defaults to "").
         **kwargs :
             Key-word arguments for the mosaic initialisation.
 
@@ -2312,7 +2528,7 @@ class RegularMosaicGeometry(MosaicGeometry):
         # compute mosaic orientation
         ori = -np.arctan2(geotrans[2], geotrans[1])
 
-        adjacency_matrix = np.zeros((n_rows, n_cols))
+        adjacency_matrix = np.zeros((n_rows, n_cols), dtype=np.int64)
         tiles = []
         tile_counter = 0
         for mosaic_row in range(n_rows):
@@ -2342,7 +2558,8 @@ class RegularMosaicGeometry(MosaicGeometry):
                 adjacency_matrix[mosaic_row, mosaic_col] = tile_counter
                 tile_counter += 1
 
-        return cls(tiles, boundary=boundary, check_consistency=True, **kwargs)
+        return cls.from_tile_list(tiles, boundary=boundary, adjacency_matrix=adjacency_matrix, name=name,
+                                  description=description, check_consistency=True, **kwargs)
 
     @property
     def shape(self):
@@ -2521,15 +2738,22 @@ class RegularMosaicGeometry(MosaicGeometry):
 
         return is_within
 
-    def __check_consistency(self, tiles):
+    def __check_consistency(self, tile_df):
         """
         Checks if the given tiles are consistent, which is the case if they match in pixel size, shape and
         spatial reference system.
 
         Parameters
         ----------
-        tiles : list of geospade.raster.Tile
-            List of tiles.
+        Parameters
+        ----------
+        tile_df : pd.Dataframe
+            Data frame containing at least the following columns:
+                - 'tile': geospade.raster.Tile instances
+                - 'active': flag defining if a tile is active or not
+                - 'topology' : spatial relationship of a tile with the mosaic boundary,
+                               i.e. 'INNER', 'OUTER', or 'BOUNDARY'
+            The index of the data frame is the tile name/ID of the corresponding tile.
 
         Returns
         -------
@@ -2537,6 +2761,7 @@ class RegularMosaicGeometry(MosaicGeometry):
             True if the mosaic is valid/consistent, False if not.
 
         """
+        tiles = tile_df['tile']
         ref_tile = tiles[0]
         x_pixel_size = ref_tile.x_pixel_size
         y_pixel_size = ref_tile.y_pixel_size
@@ -2558,12 +2783,13 @@ class RegularMosaicGeometry(MosaicGeometry):
 
         return is_consistent
 
-    def __build_adjacency_matrix(self, tiles):
+    def __build_adjacency_matrix(self):
         """
         np.array : 2D numpy array representing an adjacency matrix, i.e. it contains information which tiles lay
         within the direct neighbourhood of one tile.
 
         """
+        tiles = self._tiles['tile']
         ref_tile = tiles[0]
         ul_xs, ul_ys = zip(*[(tile.ul_x, tile.ul_y) for tile in tiles])
         ll_xs, ll_ys = zip(*[tile.rc2xy(tile.n_rows - 1, 0, 'll') for tile in tiles])
@@ -2595,6 +2821,52 @@ class RegularMosaicGeometry(MosaicGeometry):
             adjacency_matrix[r, c] = i
 
         return adjacency_matrix
+
+    def __deepcopy__(self, memo):
+        """
+        Deepcopy method of the `RegularMosaicGeometry` class.
+
+        Parameters
+        ----------
+        memo : dict
+
+        Returns
+        -------
+        RegularMosaicGeometry
+            Deepcopy of a regular mosaic.
+
+        """
+        if type(self).__name__ == "RegularMosaicGeometry":
+            return self.__deepcopy(memo)
+        else:
+            return self._deepcopy(memo)
+
+    def __deepcopy(self, memo):
+        """
+        Deepcopy helper method of the `RegularMosaicGeometry` class.
+
+        Parameters
+        ----------
+        memo : dict
+
+        Returns
+        -------
+        RegularMosaicGeometry
+            Deepcopy of a regular mosaic.
+
+        """
+        tiles = copy.deepcopy(self._tiles)
+        boundary = self.boundary.Clone()
+        adjacency_matrix = copy.deepcopy(self._adjacency_matrix)
+        name = self.name
+        description = self.description
+
+        return RegularMosaicGeometry(tiles, boundary=boundary, adjacency_matrix=adjacency_matrix, name=name,
+                                     description=description, check_consistency=False)
+
+    def _deepcopy(self, memo):
+        """ Placeholder for a deepcopy method of the child class. """
+        raise NotImplementedError('Child class needs to implement a deepcopy method!')
 
 
 if __name__ == '__main__':

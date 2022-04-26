@@ -2,7 +2,7 @@
 
 import os
 import sys
-import ogr
+from osgeo import ogr
 import json
 import unittest
 import random
@@ -496,7 +496,7 @@ class MosaicGeometryTest(unittest.TestCase):
 
         # merge tiles
         tiles = upper_mosaic_geom.tiles + middle_mosaic_geom.tiles + lower_mosaic_geom.tiles
-        self.mosaic_geom = MosaicGeometry(tiles)
+        self.mosaic_geom = MosaicGeometry.from_tile_list(tiles)
 
     def test_tile_from_name(self):
         """ Tests retrieval of a tile from a `MosaicGeometry` instance by a given tile name. """
@@ -529,7 +529,7 @@ class MosaicGeometryTest(unittest.TestCase):
         """ Tests intersection of a geometry with the tiles contained in the mosaic geometry. """
 
         geom = any_geom2ogr_geom(self._get_roi(), sref=self.mosaic_geom.sref)
-        intscted_tiles = list(self.mosaic_geom.slice_tiles_by_geom(geom).values())
+        intscted_tiles = self.mosaic_geom.slice_by_geom(geom, inplace=False).tiles
         outer_boundary_extent = RasterGeometry.from_raster_geometries(intscted_tiles).outer_boundary_extent
         self.assertTupleEqual(outer_boundary_extent, self._get_roi())
 
@@ -540,13 +540,12 @@ class MosaicGeometryTest(unittest.TestCase):
         self.mosaic_geom.slice_by_geom(geom)
 
         assert len(self.mosaic_geom.tiles) == 5
-        assert sorted(self.mosaic_geom.tile_names) == ["R1S000W000", "R1S000W001", "R1S000W002", "R2S000W000",  "R2S000W001"]
 
-    def test_filter_tile_metadata(self):
+    def test_select_tile_metadata(self):
         """ Tests sub-setting a mosaic geometry with another geometry. """
 
         metadata = {'test': 2}
-        self.mosaic_geom.filter_tile_metadata(metadata)
+        self.mosaic_geom.select_by_tile_metadata(metadata)
 
         assert len(self.mosaic_geom.tiles) == 3
         assert sorted(self.mosaic_geom.tile_names) == ["R2S000W000", "R2S000W001", "R2S000W002"]
@@ -571,7 +570,7 @@ class MosaicGeometryTest(unittest.TestCase):
 
             # test plotting with different active tiles
             metadata = {'test': 1}
-            self.mosaic_geom.filter_tile_metadata(metadata)
+            self.mosaic_geom.select_by_tile_metadata(metadata)
             self.mosaic_geom.plot(proj=ccrs.EckertI(), label_tiles=True, show=False)
             plt.close()
 
@@ -667,7 +666,7 @@ class RegularMosaicGeometryTest(unittest.TestCase):
         """ Tests intersection of a geometry with the tiles contained in the regular mosaic geometry. """
 
         geom = any_geom2ogr_geom(self._get_roi(), sref=self.mosaic_geom.sref)
-        intscted_tiles = list(self.mosaic_geom.slice_tiles_by_geom(geom).values())
+        intscted_tiles = self.mosaic_geom.slice_by_geom(geom, inplace=False).tiles
         outer_boundary_extent = RasterGeometry.from_raster_geometries(intscted_tiles).outer_boundary_extent
         self.assertTupleEqual(outer_boundary_extent, self._get_roi())
 
@@ -678,7 +677,6 @@ class RegularMosaicGeometryTest(unittest.TestCase):
         self.mosaic_geom.slice_by_geom(geom)
 
         assert len(self.mosaic_geom.tiles) == 4
-        assert sorted(self.mosaic_geom.tile_names) == sorted(['S000W000', 'S000W001', 'S001W000', 'S001W001'])
 
     def test_plotting(self):
         """

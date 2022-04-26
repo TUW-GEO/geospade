@@ -4,7 +4,6 @@ interaction.
 
 """
 
-#import cv2
 import shapely.wkt
 import numpy as np
 from osgeo import ogr
@@ -367,7 +366,7 @@ def _round_geom_coords(geom, decimals):
     return geometry_out
 
 
-def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0, keep_shape=True):
+def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None):
     """
     Rasterises a Shapely polygon defined by a clockwise list of points.
 
@@ -382,11 +381,6 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0, k
     extent : 4-tuple, optional
         Output extent of the raster (x_min, y_min, x_max, y_max). If it is not set the output extent is taken from the
         given geometry.
-    buffer : int, optional
-        Pixel buffer for dilating or eroding the rasterised polygon (default is 0).
-    keep_shape : bool, optional
-        If true (default), `buffer` does not change the actual extent of the polygon. If it is false, the returned
-        raster has a shape in respect to its original extent +/- the `buffer`.
 
     Returns
     -------
@@ -402,7 +396,6 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0, k
     For rasterising the actual polygon, PIL's `ImageDraw` class is used.
 
     """
-    raster_buffer = abs(buffer)
 
     # retrieve polygon points
     geom_pts = list(geom.exterior.coords)
@@ -424,28 +417,15 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0, k
         y_max = int(np.ceil(round(extent[3] / y_pixel_size, DECIMALS))) * y_pixel_size
 
     # number of columns and rows (+1 to include last pixel row and column, which is lost when computing the difference)
-    n_rows = int(round((y_max - y_min) / y_pixel_size, DECIMALS) + 2 * raster_buffer) + 1
-    n_cols = int(round((x_max - x_min) / x_pixel_size, DECIMALS) + 2 * raster_buffer) + 1
+    n_rows = int(round((y_max - y_min) / y_pixel_size, DECIMALS)) + 1
+    n_cols = int(round((x_max - x_min) / x_pixel_size, DECIMALS)) + 1
 
     # raster with zeros
     mask_img = Image.new('1', (n_cols, n_rows), 0)
-    rows = (np.around(np.abs(ys - y_max) / y_pixel_size, decimals=DECIMALS) + raster_buffer).astype(int)
-    cols = (np.around(np.abs(xs - x_min) / x_pixel_size, decimals=DECIMALS) + raster_buffer).astype(int)
+    rows = (np.around(np.abs(ys - y_max) / y_pixel_size, decimals=DECIMALS)).astype(int)
+    cols = (np.around(np.abs(xs - x_min) / x_pixel_size, decimals=DECIMALS)).astype(int)
     ImageDraw.Draw(mask_img).polygon(list(zip(cols, rows)), outline=1, fill=1)
     mask_ar = np.array(mask_img).astype(np.uint8)
-
-    if buffer != 0.:
-        kernel = np.ones((3, 3), np.uint8)
-        # if buffer < 0:
-        #     mask_ar = cv2.erode(mask_ar, kernel, iterations=raster_buffer)
-        # elif buffer > 0:
-        #     mask_ar = cv2.dilate(mask_ar, kernel, iterations=raster_buffer)
-        #
-        # if keep_shape:
-        #     mask_ar = mask_ar[raster_buffer:-raster_buffer, raster_buffer:-raster_buffer]
-        # else:
-        #     if buffer < 0:
-        #         mask_ar = mask_ar[raster_buffer*2:-raster_buffer*2, raster_buffer*2:-raster_buffer*2]
 
     return mask_ar
 

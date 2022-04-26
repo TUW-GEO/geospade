@@ -541,3 +541,20 @@ class SpatialRef:
         """ bool : Checks if this and another `SpatialRef` object are unequal according to their PROJ4 strings. """
 
         return not self == other
+
+    def __deepcopy__(self, memo):
+        """
+        Deepcopy method of the `SpatialRef` class.
+
+        Parameters
+        ----------
+        memo : dict
+
+        Returns
+        -------
+        SpatialRef
+            Deepcopy of a spatial reference object.
+
+        """
+
+        return SpatialRef.from_osr(self.osr_sref)

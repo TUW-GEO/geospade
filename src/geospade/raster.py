@@ -1360,25 +1360,7 @@ class RasterGeometry:
 
     def __deepcopy__(self, memo):
         """
-        Deepcopy method of `RasterGeometry` class.
-
-        Parameters
-        ----------
-        memo : dict, optional
-
-        Returns
-        -------
-        geospade.raster.RasterGeometry
-
-        """
-        if type(self).__name__ == "RasterGeometry":
-            return self.__deepcopy(memo)
-        else:
-            return self._deepcopy(memo)
-
-    def __deepcopy(self, memo):
-        """
-        Deepcopy helper method of the `RasterGeometry` class.
+        Deepcopy method of the `RasterGeometry` class.
 
         Parameters
         ----------
@@ -1390,21 +1372,12 @@ class RasterGeometry:
             Deepcopy of a raster geometry.
 
         """
-
-        n_rows = self.n_rows
-        n_cols = self.n_cols
-        sref = copy.deepcopy(self.sref)
-        geotrans = copy.deepcopy(self.geotrans)
-        name = self.name
-        description = self.description
-        px_origin = self.px_origin
-        parent = self.parent
-
-        return RasterGeometry(n_rows, n_cols, sref, geotrans, name, description, px_origin, parent)
-
-    def _deepcopy(self, memo):
-        """ Placeholder for a deepcopy method of the child class. """
-        raise NotImplementedError('Child class needs to implement a deepcopy method!')
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+        for k, v in self.__dict__.items():
+            setattr(result, k, copy.deepcopy(v, memo))
+        return result
 
 
 class Tile(RasterGeometry):
@@ -1542,62 +1515,6 @@ class Tile(RasterGeometry):
         tile_dict['metadata'] = self.metadata
 
         return tile_dict
-
-    def __deepcopy__(self, memo):
-        """
-        Deepcopy method of `Tile` class.
-
-        Parameters
-        ----------
-        memo : dict, optional
-
-        Returns
-        -------
-        geospade.raster.Tile
-
-        """
-        if type(self).__name__ == "Tile":
-            return self.__deepcopy(memo)
-        else:
-            return self._deepcopy(memo)
-
-    def __deepcopy(self, memo):
-        """
-        Deepcopy helper method of the `Tile` class.
-
-        Parameters
-        ----------
-        memo : dict
-
-        Returns
-        -------
-        Tile
-            Deepcopy of a tile.
-
-        """
-
-        n_rows = self.n_rows
-        n_cols = self.n_cols
-        sref = copy.deepcopy(self.sref)
-        geotrans = copy.deepcopy(self.geotrans)
-        name = self.name
-        description = self.description
-        px_origin = self.px_origin
-        parent = self.parent
-        mosaic_topology = self.mosaic_topology
-        active = self.active
-        metadata = copy.deepcopy(self.metadata)
-        mask = copy.deepcopy(self._mask)
-
-        tile = Tile(n_rows, n_cols, sref, geotrans, mosaic_topology, active, metadata, name, description, px_origin,
-                    parent)
-        tile._mask = mask
-
-        return tile
-
-    def _deepcopy(self, memo):
-        """ Placeholder for a deepcopy method of the child class. """
-        raise NotImplementedError('Child class needs to implement a deepcopy method!')
 
 
 class MosaicGeometry:
@@ -2377,37 +2294,12 @@ class MosaicGeometry:
             Deepcopy of a mosaic.
 
         """
-        if type(self).__name__ == "MosaicGeometry":
-            return self.__deepcopy(memo)
-        else:
-            return self._deepcopy(memo)
-
-    def __deepcopy(self, memo):
-        """
-        Deepcopy helper method of the `MosaicGeometry` class.
-
-        Parameters
-        ----------
-        memo : dict
-
-        Returns
-        -------
-        MosaicGeometry
-            Deepcopy of a mosaic.
-
-        """
-        tiles = copy.deepcopy(self._tiles)
-        boundary = self.boundary.Clone()
-        adjacency_matrix = copy.deepcopy(self._adjacency_matrix)
-        name = self.name
-        description = self.description
-
-        return MosaicGeometry(tiles, boundary=boundary, adjacency_matrix=adjacency_matrix, name=name,
-                              description=description, check_consistency=False)
-
-    def _deepcopy(self, memo):
-        """ Placeholder for a deepcopy method of the child class. """
-        raise NotImplementedError('Child class needs to implement a deepcopy method!')
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+        for k, v in self.__dict__.items():
+            setattr(result, k, copy.deepcopy(v, memo))
+        return result
 
 
 class RegularMosaicGeometry(MosaicGeometry):
@@ -2821,52 +2713,6 @@ class RegularMosaicGeometry(MosaicGeometry):
             adjacency_matrix[r, c] = i
 
         return adjacency_matrix
-
-    def __deepcopy__(self, memo):
-        """
-        Deepcopy method of the `RegularMosaicGeometry` class.
-
-        Parameters
-        ----------
-        memo : dict
-
-        Returns
-        -------
-        RegularMosaicGeometry
-            Deepcopy of a regular mosaic.
-
-        """
-        if type(self).__name__ == "RegularMosaicGeometry":
-            return self.__deepcopy(memo)
-        else:
-            return self._deepcopy(memo)
-
-    def __deepcopy(self, memo):
-        """
-        Deepcopy helper method of the `RegularMosaicGeometry` class.
-
-        Parameters
-        ----------
-        memo : dict
-
-        Returns
-        -------
-        RegularMosaicGeometry
-            Deepcopy of a regular mosaic.
-
-        """
-        tiles = copy.deepcopy(self._tiles)
-        boundary = self.boundary.Clone()
-        adjacency_matrix = copy.deepcopy(self._adjacency_matrix)
-        name = self.name
-        description = self.description
-
-        return RegularMosaicGeometry(tiles, boundary=boundary, adjacency_matrix=adjacency_matrix, name=name,
-                                     description=description, check_consistency=False)
-
-    def _deepcopy(self, memo):
-        """ Placeholder for a deepcopy method of the child class. """
-        raise NotImplementedError('Child class needs to implement a deepcopy method!')
 
 
 if __name__ == '__main__':

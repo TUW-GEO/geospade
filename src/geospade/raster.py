@@ -97,7 +97,7 @@ class RasterGeometry:
 
     """
     def __init__(self, n_rows, n_cols, sref,
-                 geotrans=(0, 1, 0, 0, 0, 1),
+                 geotrans=(0, 1, 0, 0, 0, -1),
                  name=None,
                  description="",
                  px_origin="ul",
@@ -139,13 +139,7 @@ class RasterGeometry:
         self.description = description
         self.parent = parent
         self.px_origin = px_origin
-
-        # compute boundary geometry
-        boundary = Polygon(self.outer_boundary_corners)
-        # doing a double WKT conversion to prevent precision issues nearby machine epsilon
-        boundary_ogr = ogr.CreateGeometryFromWkt(ogr.CreateGeometryFromWkt(boundary.wkt).ExportToWkt())
-        boundary_ogr.AssignSpatialReference(self.sref.osr_sref)
-        self.boundary = boundary_ogr
+        self.boundary = self.__ogr_boundary()
 
     @classmethod
     def from_extent(cls, extent, sref, x_pixel_size, y_pixel_size, **kwargs):
@@ -746,9 +740,12 @@ class RasterGeometry:
             Raster geometry instance defined by the bounding box of the intersection geometry.
 
         """
-        intsct_raster_geom = None
+        if not inplace:
+            raster_geom = copy.deepcopy(self)
+            return raster_geom.slice_by_geom(other, snap_to_grid=snap_to_grid, inplace=True, parent=self, **kwargs)
+
         if not self.intersects(other):
-             return intsct_raster_geom
+             return
 
         intersection = self.boundary.Intersection(other)
         bbox = np.around(intersection.GetEnvelope(), decimals=DECIMALS)
@@ -759,19 +756,19 @@ class RasterGeometry:
 
         bbox = [bbox[0], bbox[2], bbox[1], bbox[3]]
         intsct_raster_geom = self.from_extent(bbox, self.sref, self.x_pixel_size,
-                                              self.y_pixel_size, px_origin=self.px_origin,
-                                              parent=self, **kwargs)
+                                              self.y_pixel_size, px_origin=self.px_origin)
 
-        if inplace:
-            self.name = intsct_raster_geom.name
-            self.description = intsct_raster_geom.description
-            self.boundary = intsct_raster_geom.boundary
-            self.n_rows = intsct_raster_geom.n_rows
-            self.n_cols = intsct_raster_geom.n_cols
-            self.geotrans = intsct_raster_geom.geotrans
-            intsct_raster_geom = self
+        parent = kwargs.get('parent')
+        self.parent = parent if parent else copy.deepcopy(self)
 
-        return intsct_raster_geom
+        self.name = kwargs.get('name', self.name)
+        self.description = kwargs.get('description', self.description)
+        self.boundary = intsct_raster_geom.boundary
+        self.n_rows = intsct_raster_geom.n_rows
+        self.n_cols = intsct_raster_geom.n_cols
+        self.geotrans = intsct_raster_geom.geotrans
+
+        return self
 
     def slice_by_rc(self, row, col, height=1, width=1, inplace=False, **kwargs):
         """
@@ -788,7 +785,7 @@ class RasterGeometry:
         width : int, optional
             Number of columns/width of the pixel window.
         inplace : bool
-            If true, the current instance will be modified.
+            If true, the current instance will be modified (default).
             If false, a new `RasterGeometry` instance will be created (default).
         **kwargs :
             Additional keyword arguments for the `RasterGeometry` constructor,
@@ -800,6 +797,9 @@ class RasterGeometry:
             Raster geometry instance defined by the pixel extent.
 
         """
+        if not inplace:
+            raster_geom = copy.deepcopy(self)
+            return raster_geom.slice_by_rc(row, col, height=height, width=width, inplace=True, parent=self, **kwargs)
 
         max_row = row + height - 1  # -1 because of Python indexing
         max_col = col + width - 1  # -1 because of Python indexing
@@ -808,20 +808,18 @@ class RasterGeometry:
 
         ul_x, ul_y = self.rc2xy(min_row, min_col, px_origin='ul')
         geotrans = build_geotransform(ul_x, ul_y, self.x_pixel_size, -self.y_pixel_size, 0)
-        n_rows, n_cols = max_row - min_row + 1, max_col - min_col + 1
-        intsct_raster_geom = RasterGeometry(n_rows, n_cols, self.sref, geotrans, px_origin='ul',
-                                            parent=self, **kwargs)
 
-        if inplace:
-            self.name = intsct_raster_geom.name
-            self.description = intsct_raster_geom.description
-            self.boundary = intsct_raster_geom.boundary
-            self.n_rows = height
-            self.n_cols = width
-            self.geotrans = geotrans
-            intsct_raster_geom = self
+        parent = kwargs.get('parent')
+        self.parent = parent if parent else copy.deepcopy(self)
 
-        return intsct_raster_geom
+        self.name = kwargs.get('name', self.name)
+        self.description = kwargs.get('description', self.description)
+        self.n_rows = height
+        self.n_cols = width
+        self.geotrans = geotrans
+        self.boundary = self.__ogr_boundary()
+
+        return self
 
     def xy2rc(self, x, y, sref=None, px_origin=None):
         """
@@ -1024,8 +1022,8 @@ class RasterGeometry:
             Scale factors, which have to be given in a clock-wise order, i.e. [left edge, top edge, right edge,
             bottom edge] or as one value.
         inplace : bool, optional
-            If True, the current instance will be modified (default).
-            If False, a new `RasterGeometry` instance will be created.
+            If True, the current instance will be modified.
+            If False, a new `RasterGeometry` instance will be created (default).
         **kwargs :
             Additional keyword arguments for the `RasterGeometry` constructor,
             e.g. `name` or `description`.
@@ -1069,6 +1067,9 @@ class RasterGeometry:
             Resized raster geometry.
 
         """
+        if not inplace:
+            raster_geom = copy.deepcopy(self)
+            return raster_geom.resize(buffer_size, unit=unit, inplace=True, parent=self, **kwargs)
 
         if isinstance(buffer_size, (float, int)):
             buffer_size = [buffer_size]*4
@@ -1131,18 +1132,19 @@ class RasterGeometry:
         new_boundary_geom.AssignSpatialReference(self.sref.osr_sref)
 
         res_raster_geom = self.from_geometry(new_boundary_geom, self.x_pixel_size, self.y_pixel_size,
-                                             px_origin=self.px_origin, parent=self, **kwargs)
+                                             px_origin=self.px_origin)
 
-        if inplace:
-            self.name = res_raster_geom.name
-            self.description = res_raster_geom.description
-            self.boundary = res_raster_geom.boundary
-            self.n_rows = res_raster_geom.n_rows
-            self.n_cols = res_raster_geom.n_cols
-            self.geotrans = res_raster_geom.geotrans
-            res_raster_geom = self
+        parent = kwargs.get('parent')
+        self.parent = parent if parent else copy.deepcopy(self)
 
-        return res_raster_geom
+        self.name = kwargs.get('name', self.name)
+        self.description = kwargs.get('description', self.description)
+        self.boundary = res_raster_geom.boundary
+        self.n_rows = res_raster_geom.n_rows
+        self.n_cols = res_raster_geom.n_cols
+        self.geotrans = res_raster_geom.geotrans
+
+        return self
 
     def to_definition(self):
         """
@@ -1212,6 +1214,14 @@ class RasterGeometry:
             raise ValueError(err_msg)
 
         return min_row, min_col, max_row, max_col
+
+    def __ogr_boundary(self):
+        """ ogr.Geometry : Outer boundary of the raster geometry as an OGR polygon. """
+        boundary = Polygon(self.outer_boundary_corners)
+        # doing a double WKT conversion to prevent precision issues nearby machine epsilon
+        boundary_ogr = ogr.CreateGeometryFromWkt(ogr.CreateGeometryFromWkt(boundary.wkt).ExportToWkt())
+        boundary_ogr.AssignSpatialReference(self.sref.osr_sref)
+        return boundary_ogr
 
     @_align_geom(align=False)
     def __contains__(self, geom):
@@ -1383,7 +1393,7 @@ class RasterGeometry:
 class Tile(RasterGeometry):
     """ A light wrapper around a raster geometry to realise a tile - mosaic relationship. """
     def __init__(self, n_rows, n_cols, sref,
-                 geotrans=(0, 1, 0, 0, 0, 1),
+                 geotrans=(0, 1, 0, 0, 0, -1),
                  mosaic_topology="INNER",
                  active=True,
                  metadata=None,
@@ -1523,10 +1533,12 @@ class MosaicGeometry:
     Tiles are not allowed to intersect with each other.
 
     """
+
+    _tile_class = Tile
     __type = 'irregular'
 
-    def __init__(self, tiles, boundary=None, adjacency_matrix=None, name="", description="",
-                 check_consistency=True, **kwargs):
+    def __init__(self, tiles, boundary=None, adjacency_matrix=None, name="", description="", tile_class=Tile,
+                 check_consistency=True, parent=None, **kwargs):
         """
         Constructor of `MosaicGeometry` class.
 
@@ -1550,8 +1562,12 @@ class MosaicGeometry:
             Name of the mosaic.
         description : string, optional
             Verbal description of the mosaic (defaults to "").
+        tile_class : geospade.raster.Tile, optional
+            Tile class of the mosaic.
         check_consistency : bool, optional
             If True, the tiles are checked for consistency, i.e. to be non-overlapping (defaults to True).
+        parent : MosaicGeometry
+            Parent `MosaicGeometry` instance.
 
         """
 
@@ -1566,11 +1582,14 @@ class MosaicGeometry:
                 err_msg = "Tiles are not allowed to overlap!"
                 raise ValueError(err_msg)
 
-        ref_tile = tiles['tile'][0]
+        ref_tile = tiles['tile'].iloc[0]
         self.sref = ref_tile.sref
         self.ori = ref_tile.ori
+        self.x_pixel_size = ref_tile.x_pixel_size
+        self.y_pixel_size = ref_tile.y_pixel_size
         self.name = name
         self.description = description
+        self.parent = parent
         self._tiles = tiles
 
         if boundary is None:
@@ -1582,6 +1601,14 @@ class MosaicGeometry:
         self._adjacency_matrix = adjacency_matrix
         if adjacency_matrix is None:
             self._adjacency_matrix = self.__build_adjacency_matrix()
+
+    @property
+    def parent_root(self):
+        """ geospade.raster.MosaicGeometry : Finds and returns the root/original parent `MosaicGeometry`. """
+        mosaic_geom = self
+        while mosaic_geom.parent is not None:
+            mosaic_geom = mosaic_geom.parent
+        return mosaic_geom
 
     @property
     def all_tiles(self):
@@ -1602,6 +1629,27 @@ class MosaicGeometry:
     def tile_names(self):
         """ list : All active tile names of the mosaic. """
         return list(self._tiles[self._tiles['active']].index)
+
+    @property
+    def coord_extent(self):
+        """
+        4-tuple: Coordinate extent of the mosaic geometry (min_x, min_y, max_x, max_y).
+
+        """
+        coord_extents = []
+        for tile in self.tiles:
+            coord_extents.extend(list(tile.coord_extent))
+        x_coords, y_coords = coord_extents[::2], coord_extents[1::2]
+        return min(x_coords), min(y_coords), max(x_coords), max(y_coords)
+
+    @property
+    def outer_extent(self):
+        """
+        4-tuple: Outer extent of the mosaic geometry, i.e. convex hull covering every pixel (min_x, min_y, max_x, max_y).
+
+        """
+        min_x, min_y, max_x, max_y = self.coord_extent
+        return min_x, min_y - self.y_pixel_size, max_x + self.x_pixel_size, max_y
 
     @classmethod
     def from_tile_list(cls, tiles, boundary=None, adjacency_matrix=None, name="", description="",
@@ -1711,6 +1759,11 @@ class MosaicGeometry:
             definition = json.load(def_file)
 
         return cls.from_definition(definition, check_consistency)
+
+    @staticmethod
+    def get_tile_class():
+        """ geospade.raster.Tile : Tile class used by the mosaic. """
+        return MosaicGeometry._tile_class
 
     def xy2tile(self, x, y, sref=None):
         """
@@ -1863,7 +1916,8 @@ class MosaicGeometry:
         return selected_tiles
 
     @_align_geom(align=True)
-    def slice_by_geom(self, geom, active_only=True, inplace=True, name="", description=""):
+    def slice_by_geom(self, geom, active_only=True, apply_mask=True, inplace=False, name="", description="",
+                      parent=None):
         """
         Computes an intersection figure of the mosaic and another geometry, which is a new mosaic only containing tiles
         intersecting with the given geometry.
@@ -1874,8 +1928,11 @@ class MosaicGeometry:
             Other geometry to intersect with.
         active_only : bool, optional
             If true, only active tiles are returned (default).
+        apply_mask : bool, optional
+            True if pixels outside the geometry should be masked (default).
+            False if every pixel withing the bounding box of the geometry should be included.
         inplace : bool, optional
-            If true, the current mosaic is modified. If false, a new mosaic instance will be returned.
+            If true, the current mosaic is modified. If false, a new mosaic instance will be returned (default).
         name : str, optional
             Name of the sliced mosaic.
         description : string, optional
@@ -1894,7 +1951,7 @@ class MosaicGeometry:
         if not inplace:
             new_mosaic = copy.deepcopy(self)
             return new_mosaic.slice_by_geom(geom, active_only=active_only, inplace=True, name=name,
-                                            description=description)
+                                            description=description, parent=self)
 
         tiles = self.select_tiles_by_geom(geom, active_only)
         intsctd_tiles = []
@@ -1908,8 +1965,22 @@ class MosaicGeometry:
                                                             x_pixel_size=intsctd_tile.x_pixel_size,
                                                             y_pixel_size=intsctd_tile.y_pixel_size)
             intsctd_tile.mask = tile.mask[min_row: max_row + 1, min_col: max_col + 1]
+
+            if apply_mask:
+                intrsctn = intsctd_tile.boundary_ogr.Intersection(geom)
+                intrsctn.FlattenTo2D()
+                geom_mask = rasterise_polygon(shapely.wkt.loads(intrsctn.ExportToWkt()),
+                                              intsctd_tile.x_pixel_size,
+                                              intsctd_tile.y_pixel_size,
+                                              extent=intsctd_tile.coord_extent)
+                intsctd_tile.mask *= geom_mask
+
             intsctd_tiles.append(intsctd_tile)
 
+        if len(intsctd_tiles) == 0:
+            return
+
+        self.parent = parent if parent is not None else copy.deepcopy(self)
         self.name = name
         self.description = description
         self._tiles = self._build_tile_df(intsctd_tiles)
@@ -1919,7 +1990,7 @@ class MosaicGeometry:
         return self
 
     @_align_geom(align=True)
-    def select_by_geom(self, geom, inplace=True):
+    def select_by_geom(self, geom, inplace=False):
         """
         Activates all mosaic tiles intersecting with the given geometry.
 
@@ -1928,7 +1999,7 @@ class MosaicGeometry:
         geom : ogr.Geometry or geospade.raster.RasterGeometry
             Other geometry to intersect with.
         inplace : bool, optional
-            If true, the current mosaic is modified. If false, a new mosaic instance will be returned.
+            If true, the current mosaic is modified. If false, a new mosaic instance will be returned (default).
 
         Returns
         -------
@@ -1947,7 +2018,7 @@ class MosaicGeometry:
 
         return self
 
-    def select_by_tile_names(self, tile_names, inplace=True):
+    def select_by_tile_names(self, tile_names, inplace=False):
         """
         Activates all mosaic tiles with the given names.
 
@@ -1956,7 +2027,7 @@ class MosaicGeometry:
         tile_names : list of str
             List of tile names.
         inplace : bool, optional
-            If true, the current mosaic is modified. If false, a new mosaic instance will be returned.
+            If true, the current mosaic is modified. If false, a new mosaic instance will be returned (default).
 
         Returns
         -------
@@ -1974,7 +2045,7 @@ class MosaicGeometry:
 
         return self
 
-    def select_by_tile_metadata(self, metadata, inplace=True):
+    def select_by_tile_metadata(self, metadata, inplace=False):
         """
         Activates all mosaic tiles matching the given metadata dictionary.
 
@@ -1983,7 +2054,7 @@ class MosaicGeometry:
         metadata : dict
             Tile metadata dictionary.
         inplace : bool, optional
-            If true, the current mosaic is modified. If false, a new mosaic instance will be returned.
+            If true, the current mosaic is modified. If false, a new mosaic instance will be returned (default).
 
         Returns
         -------
@@ -2089,7 +2160,7 @@ class MosaicGeometry:
         definition['type'] = self.__type
         definition['adjacency_matrix'] = self._adjacency_matrix.tolist()
         definition['boundary'] = self.boundary.ExportToWkt()
-        definition['tile_class'] = type(self._tiles['tile'][0]).__name__
+        definition['tile_class'] = type(self._tiles['tile'].iloc[0]).__name__
 
         for i, tile in enumerate(self.all_tiles):
             tile.active = self._tiles.iloc[i]['active']
@@ -2191,7 +2262,7 @@ class MosaicGeometry:
         for i in range(n_tiles):
             for j in range(i, n_tiles):
                 if i != j:
-                    if tiles[i].touches(tiles[j]):
+                    if tiles.iloc[i].touches(tiles.iloc[j]):
                         adjacency_matrix[i, j] = True
                         adjacency_matrix[j, i] = True
 
@@ -2298,7 +2369,11 @@ class MosaicGeometry:
         result = cls.__new__(cls)
         memo[id(self)] = result
         for k, v in self.__dict__.items():
-            setattr(result, k, copy.deepcopy(v, memo))
+            v_copy = copy.deepcopy(v, memo)
+            # tiles, i.e. mutable objects need to be deep-copied explicitly
+            if k == '_tiles':
+                v_copy['tile'] = [copy.deepcopy(tile, memo) for tile in v_copy['tile']]
+            setattr(result, k, v_copy)
         return result
 
 
@@ -2352,9 +2427,7 @@ class RegularMosaicGeometry(MosaicGeometry):
 
         ul_xs, ul_ys = zip(*[(tile.ul_x, tile.ul_y) for tile in tiles['tile']])
         ul_x, ul_y = min(ul_xs), max(ul_ys)
-        ref_tile = tiles['tile'][0]
-        self.x_pixel_size = ref_tile.x_pixel_size
-        self.y_pixel_size = ref_tile.y_pixel_size
+        ref_tile = tiles['tile'].iloc[0]
         geotrans = ref_tile.geotrans
         x_tile_size = ref_tile.x_size
         y_tile_size = ref_tile.y_size
@@ -2682,7 +2755,7 @@ class RegularMosaicGeometry(MosaicGeometry):
 
         """
         tiles = self._tiles['tile']
-        ref_tile = tiles[0]
+        ref_tile = tiles.iloc[0]
         ul_xs, ul_ys = zip(*[(tile.ul_x, tile.ul_y) for tile in tiles])
         ll_xs, ll_ys = zip(*[tile.rc2xy(tile.n_rows - 1, 0, 'll') for tile in tiles])
         ur_xs, ur_ys = zip(*[tile.rc2xy(0, tile.n_cols - 1, 'ur') for tile in tiles])

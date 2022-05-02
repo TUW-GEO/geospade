@@ -496,7 +496,7 @@ class MosaicGeometryTest(unittest.TestCase):
 
         # merge tiles
         tiles = upper_mosaic_geom.tiles + middle_mosaic_geom.tiles + lower_mosaic_geom.tiles
-        self.mosaic_geom = MosaicGeometry.from_tile_list(tiles)
+        self.mosaic_geom = MosaicGeometry.from_tile_list(tiles, name='my_mosaic')
 
     def test_tile_from_name(self):
         """ Tests retrieval of a tile from a `MosaicGeometry` instance by a given tile name. """
@@ -537,7 +537,7 @@ class MosaicGeometryTest(unittest.TestCase):
         """ Tests sub-setting a mosaic geometry with another geometry. """
 
         geom = any_geom2ogr_geom(self._get_roi(), sref=self.mosaic_geom.sref)
-        self.mosaic_geom.slice_by_geom(geom)
+        self.mosaic_geom.slice_by_geom(geom, inplace=True)
 
         assert len(self.mosaic_geom.tiles) == 5
 
@@ -545,7 +545,7 @@ class MosaicGeometryTest(unittest.TestCase):
         """ Tests sub-setting a mosaic geometry with another geometry. """
 
         metadata = {'test': 2}
-        self.mosaic_geom.select_by_tile_metadata(metadata)
+        self.mosaic_geom.select_by_tile_metadata(metadata, inplace=True)
 
         assert len(self.mosaic_geom.tiles) == 3
         assert sorted(self.mosaic_geom.tile_names) == ["R2S000W000", "R2S000W001", "R2S000W002"]
@@ -674,7 +674,7 @@ class RegularMosaicGeometryTest(unittest.TestCase):
         """ Tests sub-setting a regular mosaic geometry with another geometry. """
 
         geom = any_geom2ogr_geom(self._get_roi(), sref=self.mosaic_geom.sref)
-        self.mosaic_geom.slice_by_geom(geom)
+        self.mosaic_geom.slice_by_geom(geom, inplace=True)
 
         assert len(self.mosaic_geom.tiles) == 4
 

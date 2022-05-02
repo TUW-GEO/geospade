@@ -1,6 +1,7 @@
 """ Coordinate Reference System (CRS) module. """
 
 import re
+import pyproj
 import warnings
 from osgeo import osr
 from pyproj.crs import CRS
@@ -265,6 +266,10 @@ class SpatialRef:
             raise ValueError(err_msg)
 
         return ccrs_proj
+
+    def to_pyproj_crs(self):
+        """ pyproj.CRS : PYPROJ coordinate reference system instance. """
+        return pyproj.CRS.from_user_input(self.wkt)
 
     @staticmethod
     def osr_to_proj4(osr_sref):

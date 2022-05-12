@@ -1957,7 +1957,7 @@ class MosaicGeometry:
         intsctd_tiles = []
         for i, tile in enumerate(tiles.values()):
             # intersected tile does not have a relation with the original mosaic tile anymore
-            intsctd_tile = tile.slice_by_geom(geom, snap_to_grid=True, inplace=False, name=i,
+            intsctd_tile = tile.slice_by_geom(geom, snap_to_grid=True, inplace=False, name=str(i),
                                               mosaic_topology=None,
                                               active=True)
             origin = (tile.ul_x, tile.ul_y)
@@ -2510,7 +2510,7 @@ class RegularMosaicGeometry(MosaicGeometry):
                 tile_id = name_frmt.format(mosaic_row, mosaic_col)
                 tile = tile_class(tile_height, tile_width, sref,
                                   geotrans=tuple(tile_geotrans),
-                                  name=tile_id,
+                                  name=str(tile_id),
                                   **tile_kwargs)
                 if boundary is not None:
                     if tile.within(boundary):

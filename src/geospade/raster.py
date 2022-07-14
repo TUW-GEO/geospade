@@ -1526,6 +1526,38 @@ class Tile(RasterGeometry):
 
         return tile_dict
 
+    def slice_by_rc(self, row, col, height=1, width=1, inplace=False, **kwargs):
+        """
+        Intersects the tile with a pixel extent.
+
+        Parameters
+        ----------
+        row : int
+            Top-left row number of the pixel window anchor.
+        col : int
+            Top-left column number of the pixel window anchor.
+        height : int, optional
+            Number of rows/height of the pixel window.
+        width : int, optional
+            Number of columns/width of the pixel window.
+        inplace : bool
+            If true, the current instance will be modified (default).
+            If false, a new `RasterGeometry` instance will be created (default).
+        **kwargs :
+            Additional keyword arguments for the `RasterGeometry` constructor,
+            e.g. `name` or `description`.
+
+        Returns
+        -------
+        geospade.raster.Tile
+            Tile instance defined by the pixel extent.
+
+        """
+        tile = super().slice_by_rc(row, col, height=height, width=width, inplace=inplace, **kwargs)
+        if tile.mask is not None:
+            tile.mask = tile.mask[row:row+height, col:col+height]
+        return tile
+
 
 class MosaicGeometry:
     """
@@ -1600,7 +1632,7 @@ class MosaicGeometry:
 
         self._adjacency_matrix = adjacency_matrix
         if adjacency_matrix is None:
-            self._adjacency_matrix = self.__build_adjacency_matrix()
+            self._adjacency_matrix = self._build_adjacency_matrix()
 
     @property
     def parent_root(self):
@@ -1985,7 +2017,7 @@ class MosaicGeometry:
         self.description = description
         self._tiles = self._build_tile_df(intsctd_tiles)
         self.boundary = self.boundary
-        self._adjacency_matrix = self.__build_adjacency_matrix()
+        self._adjacency_matrix = self._build_adjacency_matrix()
 
         return self
 
@@ -2250,7 +2282,7 @@ class MosaicGeometry:
 
         return pd.DataFrame(tile_dict, index=index)
 
-    def __build_adjacency_matrix(self):
+    def _build_adjacency_matrix(self):
         """
         np.array : 2D numpy array representing an adjacency matrix, i.e. it contains information which tiles lay
         within the direct neighbourhood of one tile.
@@ -2748,7 +2780,7 @@ class RegularMosaicGeometry(MosaicGeometry):
 
         return is_consistent
 
-    def __build_adjacency_matrix(self):
+    def _build_adjacency_matrix(self):
         """
         np.array : 2D numpy array representing an adjacency matrix, i.e. it contains information which tiles lay
         within the direct neighbourhood of one tile.

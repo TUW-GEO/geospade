@@ -1,13 +1,15 @@
 """ Module collecting all functions dealing with coordinate transformations. """
 
 import warnings
-import osr
 import numpy as np
+from osgeo import osr
+from osgeo import ogr
+from typing import Tuple
 from geospade import DECIMALS
 from geospade.tools import _round_geom_coords
 
 
-def xy2ij(x, y, geotrans, origin="ul"):
+def xy2ij(x, y, geotrans, origin="ul") -> Tuple[int or np.ndarray, int or np.ndarray]:
     """
     Transforms global/world system coordinates to pixel coordinates/indexes.
 
@@ -29,9 +31,9 @@ def xy2ij(x, y, geotrans, origin="ul"):
 
     Returns
     -------
-    i : int or np.array
+    i : int or np.ndarray
         Column number(s) in pixels.
-    j : int or np.array
+    j : int or np.ndarray
         Row number(s) in pixels.
 
     """
@@ -61,7 +63,7 @@ def xy2ij(x, y, geotrans, origin="ul"):
     return i, j
 
 
-def ij2xy(i, j, geotrans, origin="ul"):
+def ij2xy(i, j, geotrans, origin="ul") -> Tuple[float or np.ndarray, float or np.ndarray]:
     """
     Transforms global/world system coordinates to pixel coordinates/indexes.
 
@@ -83,9 +85,9 @@ def ij2xy(i, j, geotrans, origin="ul"):
 
     Returns
     -------
-    x : float or np.array
+    x : float or np.ndarray
         World system coordinate(s) in X direction.
-    y : float or np.array
+    y : float or np.ndarray
         World system coordinate(s) in Y direction.
 
     """
@@ -113,7 +115,7 @@ def ij2xy(i, j, geotrans, origin="ul"):
     return x, y
 
 
-def transform_coords(x, y, this_sref, other_sref):
+def transform_coords(x, y, this_sref, other_sref) -> Tuple[float, float]:
     """
     Transforms coordinates from a source to a target spatial reference system.
 
@@ -143,7 +145,7 @@ def transform_coords(x, y, this_sref, other_sref):
     return x, y
 
 
-def transform_geom(geom, other_sref):
+def transform_geom(geom, other_sref) -> ogr.Geometry:
     """
     Transforms a OGR geometry from its source to a target spatial reference system.
 
@@ -166,11 +168,14 @@ def transform_geom(geom, other_sref):
     geometry_out.TransformTo(other_sref.osr_sref)
     # round geometry coordinates
     geometry_out = _round_geom_coords(geometry_out, DECIMALS)
+    # assign new spatial reference system
+    geometry_out.AssignSpatialReference(other_sref.osr_sref)
 
     return geometry_out
 
 
-def build_geotransform(ul_x, ul_y, x_pixel_size, y_pixel_size, rot, deg=True):
+def build_geotransform(ul_x, ul_y, x_pixel_size, y_pixel_size, rot, deg=True) -> Tuple[float, float, float,
+                                                                                       float, float, float]:
     """
     A helper function, that constructs the GDAL geo-transformation tuple given the
     upper-left coordinates, the pixel sizes and the rotation angle with respect

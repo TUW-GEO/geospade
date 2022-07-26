@@ -4,18 +4,18 @@ interaction.
 
 """
 
-import ogr
-import cv2
 import shapely.wkt
 import numpy as np
+from osgeo import ogr
 from PIL import Image, ImageDraw
 from copy import deepcopy
+from typing import Tuple
 from geospade import DECIMALS
 from geospade.errors import SrefUnknown
 from geospade.errors import GeometryUnknown
 
 
-def get_quadrant(x, y):
+def get_quadrant(x, y) -> int:
     """
     Returns the quadrant as an interger in a mathematical positive system:
     1 => first quadrant
@@ -50,7 +50,7 @@ def get_quadrant(x, y):
         return None
 
 
-def polar_point(x_ori, y_ori, dist, angle, deg=True):
+def polar_point(x_ori, y_ori, dist, angle, deg=True) -> Tuple[np.ndarray or float, np.ndarray or float]:
     """
     Computes a new point by specifying a distance and an azimuth from a given
     known point. The computation and values refer to a mathematical positive
@@ -73,9 +73,9 @@ def polar_point(x_ori, y_ori, dist, angle, deg=True):
 
     Returns
     -------
-    x_pp : float
+    x_pp : float or np.ndarray
         x coordinate of the new polar point.
-    y_pp : float
+    y_pp : float or np.ndarray
         y coordinate of the new polar point.
 
     """
@@ -86,7 +86,7 @@ def polar_point(x_ori, y_ori, dist, angle, deg=True):
     return x_pp, y_pp
 
 
-def get_inner_angles(polygon, deg=True):
+def get_inner_angles(polygon, deg=True) -> list:
     """
     Computes inner angles between all adjacent poly-lines.
 
@@ -125,7 +125,7 @@ def get_inner_angles(polygon, deg=True):
     return inner_angles
 
 
-def is_rectangular(polygon, eps=1e-9):
+def is_rectangular(polygon, eps=1e-9) -> bool:
     """
     Checks if the given polygon is rectangular.
 
@@ -147,7 +147,7 @@ def is_rectangular(polygon, eps=1e-9):
     return all([np.abs(np.pi/2. - inner_angle) <= eps for inner_angle in inner_angles])
 
 
-def bbox_to_polygon(bbox, sref, segment_size=None):
+def bbox_to_polygon(bbox, sref, segment_size=None) -> ogr.Geometry:
     """
     Create a polygon geometry from a bounding-box `bbox`, given by
     a set of two points, spanning a rectangular area.
@@ -185,7 +185,7 @@ def bbox_to_polygon(bbox, sref, segment_size=None):
     return create_polygon_geometry(corners, sref, segment_size=segment_size)
 
 
-def create_polygon_geometry(points, sref, segment_size=None):
+def create_polygon_geometry(points, sref, segment_size=None) -> ogr.Geometry:
     """
     Creates an OGR polygon geometry defined by a list of points.
 
@@ -231,7 +231,7 @@ def create_polygon_geometry(points, sref, segment_size=None):
     return polygon_geom
 
 
-def segmentize_geometry(geom, segment_size=1.):
+def segmentize_geometry(geom, segment_size=1.) -> ogr.Geometry:
     """
     Segmentizes the lines of a geometry (decreases the point spacing along the lines)
     according to a given `segment_size`.
@@ -258,7 +258,7 @@ def segmentize_geometry(geom, segment_size=1.):
     return geom_fine
 
 
-def any_geom2ogr_geom(geom, sref=None):
+def any_geom2ogr_geom(geom, sref=None) -> ogr.Geometry:
     """
     Transforms:
         - bounding box extents [(x_min, y_min), (x_max, y_max)]
@@ -327,7 +327,7 @@ def any_geom2ogr_geom(geom, sref=None):
     return ogr_geom
 
 
-def _round_geom_coords(geom, decimals):
+def _round_geom_coords(geom, decimals) -> ogr.Geometry:
     """
     'Cleans' the coordinates, so that it has rounded coordinates.
 
@@ -340,7 +340,7 @@ def _round_geom_coords(geom, decimals):
 
     Returns
     -------
-    geometry_out : OGRGeometry
+    geometry_out : ogr.Geometry
         An OGR geometry with 'cleaned' and rounded coordinates.
 
     """
@@ -367,7 +367,7 @@ def _round_geom_coords(geom, decimals):
     return geometry_out
 
 
-def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0, keep_shape=True):
+def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None) -> np.ndarray:
     """
     Rasterises a Shapely polygon defined by a clockwise list of points.
 
@@ -382,15 +382,10 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0, k
     extent : 4-tuple, optional
         Output extent of the raster (x_min, y_min, x_max, y_max). If it is not set the output extent is taken from the
         given geometry.
-    buffer : int, optional
-        Pixel buffer for dilating or eroding the rasterised polygon (default is 0).
-    keep_shape : bool, optional
-        If true (default), `buffer` does not change the actual extent of the polygon. If it is false, the returned
-        raster has a shape in respect to its original extent +/- the `buffer`.
 
     Returns
     -------
-    raster : np.array
+    raster : np.ndarray
         Binary array where zeros are background pixels and ones are foreground (polygon) pixels. Its shape is defined by
         the coordinate extent of the input polygon or by the specified `extent` parameter.
 
@@ -402,7 +397,6 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0, k
     For rasterising the actual polygon, PIL's `ImageDraw` class is used.
 
     """
-    raster_buffer = abs(buffer)
 
     # retrieve polygon points
     geom_pts = list(geom.exterior.coords)
@@ -424,33 +418,20 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None, buffer=0, k
         y_max = int(np.ceil(round(extent[3] / y_pixel_size, DECIMALS))) * y_pixel_size
 
     # number of columns and rows (+1 to include last pixel row and column, which is lost when computing the difference)
-    n_rows = int(round((y_max - y_min) / y_pixel_size, DECIMALS) + 2 * raster_buffer) + 1
-    n_cols = int(round((x_max - x_min) / x_pixel_size, DECIMALS) + 2 * raster_buffer) + 1
+    n_rows = int(round((y_max - y_min) / y_pixel_size, DECIMALS)) + 1
+    n_cols = int(round((x_max - x_min) / x_pixel_size, DECIMALS)) + 1
 
     # raster with zeros
     mask_img = Image.new('1', (n_cols, n_rows), 0)
-    rows = (np.around(np.abs(ys - y_max) / y_pixel_size, decimals=DECIMALS) + raster_buffer).astype(int)
-    cols = (np.around(np.abs(xs - x_min) / x_pixel_size, decimals=DECIMALS) + raster_buffer).astype(int)
+    rows = (np.around(np.abs(ys - y_max) / y_pixel_size, decimals=DECIMALS)).astype(int)
+    cols = (np.around(np.abs(xs - x_min) / x_pixel_size, decimals=DECIMALS)).astype(int)
     ImageDraw.Draw(mask_img).polygon(list(zip(cols, rows)), outline=1, fill=1)
     mask_ar = np.array(mask_img).astype(np.uint8)
-
-    if buffer != 0.:
-        kernel = np.ones((3, 3), np.uint8)
-        if buffer < 0:
-            mask_ar = cv2.erode(mask_ar, kernel, iterations=raster_buffer)
-        elif buffer > 0:
-            mask_ar = cv2.dilate(mask_ar, kernel, iterations=raster_buffer)
-
-        if keep_shape:
-            mask_ar = mask_ar[raster_buffer:-raster_buffer, raster_buffer:-raster_buffer]
-        else:
-            if buffer < 0:
-                mask_ar = mask_ar[raster_buffer*2:-raster_buffer*2, raster_buffer*2:-raster_buffer*2]
 
     return mask_ar
 
 
-def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px'):
+def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px') -> Tuple[float, float, float, float]:
     """
     Computes extent in relative pixels or world system coordinates with respect to an origin/reference point for
     the upper left corner.
@@ -480,7 +461,6 @@ def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px'):
             - 'sr' : (min_x, min_y, max_x, max_y)
 
     """
-
     rel_extent = (extent[0] - origin[0],
                   extent[1] - origin[1],
                   extent[2] - origin[0],
@@ -488,10 +468,10 @@ def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px'):
     if unit == 'sr':
         return rel_extent
     elif unit == 'px':
-        return np.around(rel_extent[0] / x_pixel_size, decimals=DECIMALS).astype(int),\
-               np.around(rel_extent[3] / y_pixel_size, decimals=DECIMALS).astype(int),\
-               np.around(rel_extent[2] / x_pixel_size, decimals=DECIMALS).astype(int),\
-               np.around(rel_extent[1] / y_pixel_size, decimals=DECIMALS).astype(int)
+        return int(abs(np.around(rel_extent[0] / x_pixel_size, decimals=DECIMALS))),\
+               int(abs(np.around(rel_extent[3] / y_pixel_size, decimals=DECIMALS))),\
+               int(abs(np.around(rel_extent[2] / x_pixel_size, decimals=DECIMALS))),\
+               int(abs(np.around(rel_extent[1] / y_pixel_size, decimals=DECIMALS)))
     else:
         err_msg = "Unit {} is unknown. Please use 'px' or 'sr'.".format(unit)
         raise ValueError(err_msg)

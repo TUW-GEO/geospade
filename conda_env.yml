@@ -10,5 +10,4 @@ dependencies:
     - cartopy
     - shapely
     - numba
-    - opencv
     - geopandas

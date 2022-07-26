@@ -8,6 +8,5 @@ dependencies:
     - pyproj
     - cartopy
     - shapely
-    - opencv
     - nbsphinx
     - ipykernel

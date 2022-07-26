@@ -12,7 +12,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: ['3.7']
+        python-version: ['3.8']
         os: ['windows-latest']
 
     steps:
@@ -29,7 +29,7 @@ jobs:
           miniconda-version: "latest"
           auto-update-conda: true
           python-version: ${{ matrix.python-version }}
-          environment-file: conda_environment.yml
+          environment-file: conda_env.yml
           activate-environment: geospade
           auto-activate-base: false
       - name: Print environment infos

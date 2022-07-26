@@ -17,8 +17,8 @@ class GeometryUnknown(Exception):
 
         self.message = "The given geometry type '{}' cannot be used.".format(type(geometry))
 
-    def __str__(self):
-        """ str : String representation of this class. """
+    def __str__(self) -> str:
+        """ String representation of this class. """
 
         return self.message
 
@@ -31,7 +31,7 @@ class SrefUnknown(Exception):
 
         self.message = "No spatial reference system information is supplied."
 
-    def __str__(self):
-        """ str : String representation of this class. """
+    def __str__(self) -> str:
+        """ String representation of this class. """
 
         return self.message

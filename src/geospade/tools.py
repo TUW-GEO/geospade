@@ -9,12 +9,13 @@ import numpy as np
 from osgeo import ogr
 from PIL import Image, ImageDraw
 from copy import deepcopy
+from typing import Tuple
 from geospade import DECIMALS
 from geospade.errors import SrefUnknown
 from geospade.errors import GeometryUnknown
 
 
-def get_quadrant(x, y):
+def get_quadrant(x, y) -> int:
     """
     Returns the quadrant as an interger in a mathematical positive system:
     1 => first quadrant
@@ -49,7 +50,7 @@ def get_quadrant(x, y):
         return None
 
 
-def polar_point(x_ori, y_ori, dist, angle, deg=True):
+def polar_point(x_ori, y_ori, dist, angle, deg=True) -> Tuple[np.ndarray or float, np.ndarray or float]:
     """
     Computes a new point by specifying a distance and an azimuth from a given
     known point. The computation and values refer to a mathematical positive
@@ -72,9 +73,9 @@ def polar_point(x_ori, y_ori, dist, angle, deg=True):
 
     Returns
     -------
-    x_pp : float
+    x_pp : float or np.ndarray
         x coordinate of the new polar point.
-    y_pp : float
+    y_pp : float or np.ndarray
         y coordinate of the new polar point.
 
     """
@@ -85,7 +86,7 @@ def polar_point(x_ori, y_ori, dist, angle, deg=True):
     return x_pp, y_pp
 
 
-def get_inner_angles(polygon, deg=True):
+def get_inner_angles(polygon, deg=True) -> list:
     """
     Computes inner angles between all adjacent poly-lines.
 
@@ -124,7 +125,7 @@ def get_inner_angles(polygon, deg=True):
     return inner_angles
 
 
-def is_rectangular(polygon, eps=1e-9):
+def is_rectangular(polygon, eps=1e-9) -> bool:
     """
     Checks if the given polygon is rectangular.
 
@@ -146,7 +147,7 @@ def is_rectangular(polygon, eps=1e-9):
     return all([np.abs(np.pi/2. - inner_angle) <= eps for inner_angle in inner_angles])
 
 
-def bbox_to_polygon(bbox, sref, segment_size=None):
+def bbox_to_polygon(bbox, sref, segment_size=None) -> ogr.Geometry:
     """
     Create a polygon geometry from a bounding-box `bbox`, given by
     a set of two points, spanning a rectangular area.
@@ -184,7 +185,7 @@ def bbox_to_polygon(bbox, sref, segment_size=None):
     return create_polygon_geometry(corners, sref, segment_size=segment_size)
 
 
-def create_polygon_geometry(points, sref, segment_size=None):
+def create_polygon_geometry(points, sref, segment_size=None) -> ogr.Geometry:
     """
     Creates an OGR polygon geometry defined by a list of points.
 
@@ -230,7 +231,7 @@ def create_polygon_geometry(points, sref, segment_size=None):
     return polygon_geom
 
 
-def segmentize_geometry(geom, segment_size=1.):
+def segmentize_geometry(geom, segment_size=1.) -> ogr.Geometry:
     """
     Segmentizes the lines of a geometry (decreases the point spacing along the lines)
     according to a given `segment_size`.
@@ -257,7 +258,7 @@ def segmentize_geometry(geom, segment_size=1.):
     return geom_fine
 
 
-def any_geom2ogr_geom(geom, sref=None):
+def any_geom2ogr_geom(geom, sref=None) -> ogr.Geometry:
     """
     Transforms:
         - bounding box extents [(x_min, y_min), (x_max, y_max)]
@@ -326,7 +327,7 @@ def any_geom2ogr_geom(geom, sref=None):
     return ogr_geom
 
 
-def _round_geom_coords(geom, decimals):
+def _round_geom_coords(geom, decimals) -> ogr.Geometry:
     """
     'Cleans' the coordinates, so that it has rounded coordinates.
 
@@ -339,7 +340,7 @@ def _round_geom_coords(geom, decimals):
 
     Returns
     -------
-    geometry_out : OGRGeometry
+    geometry_out : ogr.Geometry
         An OGR geometry with 'cleaned' and rounded coordinates.
 
     """
@@ -366,7 +367,7 @@ def _round_geom_coords(geom, decimals):
     return geometry_out
 
 
-def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None):
+def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None) -> np.ndarray:
     """
     Rasterises a Shapely polygon defined by a clockwise list of points.
 
@@ -384,7 +385,7 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None):
 
     Returns
     -------
-    raster : np.array
+    raster : np.ndarray
         Binary array where zeros are background pixels and ones are foreground (polygon) pixels. Its shape is defined by
         the coordinate extent of the input polygon or by the specified `extent` parameter.
 
@@ -430,7 +431,7 @@ def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None):
     return mask_ar
 
 
-def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px'):
+def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px') -> Tuple[float, float, float, float]:
     """
     Computes extent in relative pixels or world system coordinates with respect to an origin/reference point for
     the upper left corner.
@@ -460,7 +461,6 @@ def rel_extent(origin, extent, x_pixel_size=1, y_pixel_size=1, unit='px'):
             - 'sr' : (min_x, min_y, max_x, max_y)
 
     """
-
     rel_extent = (extent[0] - origin[0],
                   extent[1] - origin[1],
                   extent[2] - origin[0],

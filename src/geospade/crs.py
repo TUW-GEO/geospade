@@ -1,6 +1,8 @@
 """ Coordinate Reference System (CRS) module. """
 
 import re
+
+import cartopy.crs
 import pyproj
 import warnings
 from osgeo import osr
@@ -86,7 +88,7 @@ class SpatialRef:
         self._sref_type = sref_type
 
     @classmethod
-    def from_osr(cls, osr_sref):
+    def from_osr(cls, osr_sref) -> "SpatialRef":
         """
         Creates a `SpatialRef` object from an OSR spatial reference object. To allow this transformation,
         PROJ4 is used.
@@ -107,8 +109,8 @@ class SpatialRef:
         return cls(proj4_string, sref_type='proj4')
 
     @property
-    def proj4(self):
-        """ str : PROJ4 string representation. """
+    def proj4(self) -> str:
+        """ PROJ4 string representation. """
 
         if self._proj4 is None:
             _ = self._check_conversion("proj4")
@@ -117,8 +119,8 @@ class SpatialRef:
         return self._proj4
 
     @property
-    def epsg(self):
-        """ int : EPSG code representation as an integer. """
+    def epsg(self) -> int:
+        """ EPSG code representation as an integer. """
 
         if self._epsg is None:
             _ = self._check_conversion("epsg")
@@ -127,8 +129,8 @@ class SpatialRef:
         return self._epsg
 
     @property
-    def wkt(self):
-        """ str : Well Known Text (WKT) representation of the spatial reference without tabs or line breaks. """
+    def wkt(self) -> str:
+        """ Well Known Text (WKT) representation of the spatial reference without tabs or line breaks. """
 
         if self._wkt is None:
             _ = self._check_conversion("wkt")
@@ -136,21 +138,21 @@ class SpatialRef:
 
         return self._wkt
 
-    def to_pretty_wkt(self):
-        """ str : Well Known Text (WKT) representation of the spatial reference formatted with tabs and line breaks. """
+    def to_pretty_wkt(self) -> str:
+        """ Well Known Text (WKT) representation of the spatial reference formatted with tabs and line breaks. """
 
         return self.osr_sref.ExportToPrettyWkt()
 
-    def to_proj4_dict(self):
+    def to_proj4_dict(self) -> dict:
         """
-        dict : Converts internal PROJ4 parameter string to a dictionary, where the keys do not contain a plus and
+        Converts internal PROJ4 parameter string to a dictionary, where the keys do not contain a plus and
         the values are converted to non-string values if possible.
 
         """
 
         return self._proj4_str_to_dict(self.proj4)
 
-    def to_cartopy_proj(self):
+    def to_cartopy_proj(self) -> cartopy.crs.Projection:
         """
         Creates a `cartopy.crs.Projection` instance from PROJ4 parameters.
 
@@ -267,12 +269,12 @@ class SpatialRef:
 
         return ccrs_proj
 
-    def to_pyproj_crs(self):
-        """ pyproj.CRS : PYPROJ coordinate reference system instance. """
+    def to_pyproj_crs(self) -> pyproj.CRS:
+        """ PYPROJ coordinate reference system instance. """
         return pyproj.CRS.from_user_input(self.wkt)
 
     @staticmethod
-    def osr_to_proj4(osr_sref):
+    def osr_to_proj4(osr_sref) -> str:
         """
         Converts an `osr.SpatialReference` instance to a PROJ4 string.
 
@@ -291,7 +293,7 @@ class SpatialRef:
         return osr_sref.ExportToProj4()[:-1]
 
     @staticmethod
-    def proj4_to_osr(proj4_params):
+    def proj4_to_osr(proj4_params) -> osr.SpatialReference:
         """
         Converts PROJ4 parameters to an OSR spatial reference object.
 
@@ -329,7 +331,7 @@ class SpatialRef:
         return osr_sref
 
     @staticmethod
-    def osr_to_epsg(osr_sref):
+    def osr_to_epsg(osr_sref) -> int:
         """
         Converts an `osr.SpatialReference` instance to an EPSG code.
 
@@ -351,7 +353,7 @@ class SpatialRef:
         return epsg_code
 
     @staticmethod
-    def epsg_to_osr(epsg_code):
+    def epsg_to_osr(epsg_code) -> osr.SpatialReference:
         """
         Converts an EPSG code to an OSR spatial reference object.
 
@@ -386,7 +388,7 @@ class SpatialRef:
         return osr_sref
 
     @staticmethod
-    def osr_to_wkt(osr_sref):
+    def osr_to_wkt(osr_sref) -> str:
         """
         Converts an `osr.SpatialReference` instance to a  Well Known Text (WKT) string.
 
@@ -405,7 +407,7 @@ class SpatialRef:
         return osr_sref.ExportToWkt()
 
     @staticmethod
-    def wkt_to_osr(wkt_string):
+    def wkt_to_osr(wkt_string) -> osr.SpatialReference:
         """
         Converts a Well Known Text (WKT) string to an OSR spatial reference object.
 
@@ -438,7 +440,7 @@ class SpatialRef:
 
         return osr_sref
 
-    def __convert_proj4_pairs_to_dict(self, proj4_pairs):
+    def __convert_proj4_pairs_to_dict(self, proj4_pairs) -> dict:
         """
         Converts PROJ4 parameters to floats if possible.
 
@@ -466,7 +468,7 @@ class SpatialRef:
 
         return proj4_dict
 
-    def _proj4_str_to_dict(self, proj4_string):
+    def _proj4_str_to_dict(self, proj4_string) -> dict:
         """
         Converts PROJ4 compatible string to dictionary.
 
@@ -498,7 +500,7 @@ class SpatialRef:
             proj4_pairs = (x.split('=', 1) for x in proj4_string.replace('+', '').split(" "))
             return self.__convert_proj4_pairs_to_dict(proj4_pairs)
 
-    def _check_conversion(self, tar_sref_type):
+    def _check_conversion(self, tar_sref_type) -> bool:
         """
         Checks whether this spatial reference type can be neatly transformed to another spatial reference type
         (e.g., WKT -> EPSG).
@@ -537,17 +539,17 @@ class SpatialRef:
 
         return is_valid
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         """ bool : Checks if this and another `SpatialRef` object are equal according to their PROJ4 strings. """
 
         return self.proj4 == other.proj4
 
-    def __ne__(self, other):
+    def __ne__(self, other) -> bool:
         """ bool : Checks if this and another `SpatialRef` object are unequal according to their PROJ4 strings. """
 
         return not self == other
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo) -> "SpatialRef":
         """
         Deepcopy method of the `SpatialRef` class.
 

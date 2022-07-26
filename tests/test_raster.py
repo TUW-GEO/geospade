@@ -65,7 +65,7 @@ class RasterGeometryTest(unittest.TestCase):
 
         raster_geom = RasterGeometry.from_geometry(self.ogr_geom, self.x_pixel_size, self.y_pixel_size)
 
-        self.assertListEqual(raster_geom.outer_boundary_corners, list(self.sh_geom.exterior.coords)[:-1])
+        self.assertTupleEqual(raster_geom.outer_boundary_corners, tuple(self.sh_geom.exterior.coords)[:-1])
 
     def test_from_json(self):
         """ Tests the creation of a raster geometry from a JSON file containing a raster geometry definition. """
@@ -151,12 +151,12 @@ class RasterGeometryTest(unittest.TestCase):
         """ Tests if extent nodes are equal to the vertices of the raster geometry. """
 
         # create vertices from extent
-        vertices = [(self.extent[0], self.extent[1]),
+        vertices = ((self.extent[0], self.extent[1]),
                     (self.extent[0], self.extent[3]),
                     (self.extent[2], self.extent[3]),
-                    (self.extent[2], self.extent[1])]
+                    (self.extent[2], self.extent[1]))
 
-        self.assertListEqual(self.raster_geom.outer_boundary_corners, vertices)
+        self.assertTupleEqual(self.raster_geom.outer_boundary_corners, vertices)
 
     def test_x_coords(self):
         """ Tests coordinate retrieval along x dimension. """

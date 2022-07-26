@@ -2,6 +2,12 @@
 Changelog
 =========
 
+Version 0.2.1
+=============
+
+- minor bug fixes
+- typing
+
 Version 0.2.0
 =============
 

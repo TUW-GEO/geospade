@@ -26,10 +26,6 @@ To preserve the spatial relationship for each image, `MosaicGeometry` can help t
 It represents a simple collection of `Tile`/`RasterGeometry` instances, where each `Tile` describes the spatial properties of an image.
 With this setup, tile relations and neighbourhoods can be derived.
 
-## Outlook
-In near future, *geospade* will serve as one of the basic packages supporting [*yeoda*](https://github.com/TUW-GEO/yeoda) and [*veranda*](https://github.com/TUW-GEO/veranda) with geospatial information. 
-Moreover, existing packages defining grids (e.g., [*Equi7Grid*](https://github.com/TUW-GEO/Equi7Grid) or [*LatLonGrid*](https://github.com/TUW-GEO/latlongrid)) will make use of the new functionalities offered by *geospade*.
-
 ## Installation
 The package can be either installed via pip or if you solely want to work with *geospade* or contribute, we recommend to 
 install it as a conda environment. If you work already with your own environment, please have look at ``conda_environment.yml`` and install/adapt missing packages.

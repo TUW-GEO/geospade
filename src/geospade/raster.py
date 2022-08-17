@@ -650,7 +650,7 @@ class RasterGeometry:
         return x_is_on_grid, y_is_on_grid
 
     @_align_geom(align=True)
-    def intersects(self, other) -> bool:
+    def intersects(self, other, sref=None) -> bool:
         """
         Evaluates if this `RasterGeometry` instance and another geometry intersect.
 
@@ -658,6 +658,9 @@ class RasterGeometry:
         ----------
         other : ogr.Geometry or geospade.raster.RasterGeometry
             Other geometry to evaluate an intersection with.
+        sref : SpatialRef, optional
+            Spatial reference of `other`. Has to be given if the spatial
+            reference is different than the spatial reference of the raster geometry.
 
         Returns
         -------
@@ -668,7 +671,7 @@ class RasterGeometry:
         return self.boundary.Intersects(other)
 
     @_align_geom(align=True)
-    def touches(self, other) -> bool:
+    def touches(self, other, sref=None) -> bool:
         """
         Evaluates if this `RasterGeometry` instance and another geometry touch each other.
 
@@ -676,6 +679,9 @@ class RasterGeometry:
         ----------
         other : ogr.Geometry or geospade.raster.RasterGeometry
             Other geometry to evaluate a touch operation with.
+        sref : SpatialRef, optional
+            Spatial reference of `other`. Has to be given if the spatial
+            reference is different than the spatial reference of the raster geometry.
 
         Returns
         -------
@@ -686,7 +692,7 @@ class RasterGeometry:
         return self.boundary.Touches(other)
 
     @_align_geom(align=True)
-    def within(self, other) -> bool:
+    def within(self, other, sref=None) -> bool:
         """
         Evaluates if the raster geometry is fully within another geometry.
 
@@ -694,6 +700,9 @@ class RasterGeometry:
         ----------
         other : ogr.Geometry or geospade.raster.RasterGeometry
             Other geometry to evaluate a within operation with.
+        sref : SpatialRef, optional
+            Spatial reference of `other`. Has to be given if the spatial
+            reference is different than the spatial reference of the raster geometry.
 
         Returns
         -------
@@ -704,7 +713,7 @@ class RasterGeometry:
         return self.boundary.Within(other)
 
     @_align_geom(align=True)
-    def overlaps(self, other) -> bool:
+    def overlaps(self, other, sref=None) -> bool:
         """
         Evaluates if a geometry overlaps with the raster geometry.
 
@@ -712,6 +721,9 @@ class RasterGeometry:
         ----------
         other : ogr.Geometry or geospade.raster.RasterGeometry
             Other geometry to evaluate an overlaps operation with.
+        sref : SpatialRef, optional
+            Spatial reference of `other`. Has to be given if the spatial
+            reference is different than the spatial reference of the raster geometry.
 
         Returns
         -------
@@ -722,7 +734,7 @@ class RasterGeometry:
         return self.boundary.Overlaps(other)
 
     @_align_geom(align=True)
-    def slice_by_geom(self, other, snap_to_grid=True, inplace=False, **kwargs) -> "RasterGeometry":
+    def slice_by_geom(self, other, sref=None, snap_to_grid=True, inplace=False, **kwargs) -> "RasterGeometry":
         """
         Computes an intersection figure of two geometries and returns its
         (grid axis-parallel rectangle) bounding box as a raster geometry.
@@ -731,6 +743,9 @@ class RasterGeometry:
         ----------
         other : ogr.Geometry or geospade.raster.RasterGeometry
             Other geometry to intersect with.
+        sref : SpatialRef, optional
+            Spatial reference of `other`. Has to be given if the spatial
+            reference is different than the spatial reference of the raster geometry.
         snap_to_grid : bool, optional
             If true, the computed corners of the intersection are rounded off to
             nearest pixel corner (default).
@@ -749,7 +764,8 @@ class RasterGeometry:
         """
         if not inplace:
             raster_geom = copy.deepcopy(self)
-            return raster_geom.slice_by_geom(other, snap_to_grid=snap_to_grid, inplace=True, parent=self, **kwargs)
+            return raster_geom.slice_by_geom(other, sref=sref, snap_to_grid=snap_to_grid, inplace=True,
+                                             parent=self, **kwargs)
 
         if not self.intersects(other):
              return
@@ -1901,7 +1917,7 @@ class MosaicGeometry:
         return nbr_tiles
 
     @_align_geom(align=True)
-    def select_tiles_by_geom(self, geom, active_only=True, apply_mask=True) -> dict:
+    def select_tiles_by_geom(self, geom, sref=None, active_only=True, apply_mask=True) -> dict:
         """
         Computes an intersection figure of the mosaic and another geometry and returns the tiles intersecting with this
         figure.
@@ -1910,6 +1926,9 @@ class MosaicGeometry:
         ----------
         geom : ogr.Geometry
             Other geometry to intersect with.
+        sref : SpatialRef, optional
+            Spatial reference of `geom`. Has to be given if the spatial
+            reference is different than the spatial reference of the mosaic.
         active_only : bool, optional
             If true, only active tiles are returned (default).
         apply_mask : bool, optional
@@ -1949,7 +1968,7 @@ class MosaicGeometry:
         return selected_tiles
 
     @_align_geom(align=True)
-    def slice_by_geom(self, geom, active_only=True, apply_mask=True, inplace=False, name="", description="",
+    def slice_by_geom(self, geom, sref=None, active_only=True, apply_mask=True, inplace=False, name="", description="",
                       parent=None) -> "MosaicGeometry":
         """
         Computes an intersection figure of the mosaic and another geometry, which is a new mosaic only containing tiles
@@ -1959,6 +1978,9 @@ class MosaicGeometry:
         ----------
         geom : ogr.Geometry
             Other geometry to intersect with.
+        sref : SpatialRef, optional
+            Spatial reference of `geom`. Has to be given if the spatial
+            reference is different than the spatial reference of the raster geometry.
         active_only : bool, optional
             If true, only active tiles are returned (default).
         apply_mask : bool, optional
@@ -1983,14 +2005,14 @@ class MosaicGeometry:
         """
         if not inplace:
             new_mosaic = copy.deepcopy(self)
-            return new_mosaic.slice_by_geom(geom, active_only=active_only, inplace=True, name=name,
+            return new_mosaic.slice_by_geom(geom, sref=sref, active_only=active_only, inplace=True, name=name,
                                             description=description, parent=self)
 
         tiles = self.select_tiles_by_geom(geom, active_only)
         intsctd_tiles = []
         for i, tile in enumerate(tiles.values()):
             # intersected tile does not have a relation with the original mosaic tile anymore
-            intsctd_tile = tile.slice_by_geom(geom, snap_to_grid=True, inplace=False, name=str(i),
+            intsctd_tile = tile.slice_by_geom(geom, sref=sref, snap_to_grid=True, inplace=False, name=str(i),
                                               mosaic_topology=None,
                                               active=True)
             origin = (tile.ul_x, tile.ul_y)
@@ -2023,7 +2045,7 @@ class MosaicGeometry:
         return self
 
     @_align_geom(align=True)
-    def select_by_geom(self, geom, inplace=False) -> "MosaicGeometry":
+    def select_by_geom(self, geom, sref=None, inplace=False) -> "MosaicGeometry":
         """
         Activates all mosaic tiles intersecting with the given geometry.
 
@@ -2031,6 +2053,9 @@ class MosaicGeometry:
         ----------
         geom : ogr.Geometry or geospade.raster.RasterGeometry
             Other geometry to intersect with.
+        sref : SpatialRef, optional
+            Spatial reference of `geom`. Has to be given if the spatial
+            reference is different than the spatial reference of the raster geometry.
         inplace : bool, optional
             If true, the current mosaic is modified. If false, a new mosaic instance will be returned (default).
 
@@ -2588,9 +2613,32 @@ class RegularMosaicGeometry(MosaicGeometry):
         osr_sref = self.sref.osr_sref if sref is None else sref.osr_sref
         point.AssignSpatialReference(osr_sref)
 
+        return self.poi2tile(point, sref=sref)
+
+    @_align_geom(align=True)
+    def poi2tile(self, poi, sref=None) -> Tile:
+        """
+        Returns the tile intersecting with the given point of interest in world system coordinates. If the coordinates
+        are outside the mosaic boundary, no tile is returned.
+
+        Parameters
+        ----------
+        poi : ogr.wkbPoint
+            Point of interest.
+        sref : SpatialRef, optional
+            Spatial reference system of the world system coordinates. If None, the spatial reference system of the
+            coordinates and the spatial reference system of the mosaic are assumed to be the same (default).
+
+        Returns
+        -------
+        geospade.raster.Tile :
+            Tile intersecting/matching with the given world system coordinates.
+
+        """
+
         tile_oi = None
-        if point.Intersects(self.boundary):  # point is inside grid definition
-            mosaic_row, mosaic_col = self._raster_geom.xy2rc(x, y, sref=sref)
+        if poi.Intersects(self.boundary):  # point is inside grid definition
+            mosaic_row, mosaic_col = self._raster_geom.xy2rc(poi.GetX(), poi.GetY(), sref=sref)
             tile_oi = self.__tile_from_rc(mosaic_row, mosaic_col)
 
         return tile_oi
@@ -2637,7 +2685,7 @@ class RegularMosaicGeometry(MosaicGeometry):
         return nbr_tiles
 
     @_align_geom(align=True)
-    def select_tiles_by_geom(self, geom, active_only=True, apply_mask=True) -> dict:
+    def select_tiles_by_geom(self, geom, sref=None, active_only=True, apply_mask=True) -> dict:
         """
         Computes an intersection figure of the mosaic and another geometry and returns the tiles intersecting with this
         figure.
@@ -2646,6 +2694,9 @@ class RegularMosaicGeometry(MosaicGeometry):
         ----------
         geom : ogr.Geometry
             Other geometry to intersect with.
+        sref : SpatialRef, optional
+            Spatial reference of `geom`. Has to be given if the spatial
+            reference is different than the spatial reference of the raster geometry.
         active_only : bool, optional
             If true, only active tiles are returned (default).
         apply_mask : bool, optional

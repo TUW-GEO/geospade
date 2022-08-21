@@ -880,7 +880,7 @@ class RasterGeometry:
         """
 
         if sref is not None:
-            x, y = transform_coords(x, y, sref, self.sref.osr_sref)
+            x, y = transform_coords(x, y, sref, self.sref)
         px_origin = self.px_origin if px_origin is None else px_origin
         c, r = xy2ij(x, y, self.geotrans, origin=px_origin)
         return r, c
@@ -1841,17 +1841,58 @@ class MosaicGeometry:
         osr_sref = self.sref.osr_sref if sref is None else sref.osr_sref
         point.AssignSpatialReference(osr_sref)
 
+        return self.poi2tile(point, sref=sref)
+
+    @_align_geom(align=True)
+    def poi2tile(self, poi, sref=None) -> Tile:
+        """
+        Returns the tile intersecting with the given point of interest in world system coordinates. If the coordinates
+        are outside the mosaic boundary, no tile is returned.
+
+        Parameters
+        ----------
+        poi : ogr.wkbPoint
+            Point of interest.
+        sref : SpatialRef, optional
+            Spatial reference system of the world system coordinates. If None, the spatial reference system of the
+            coordinates and the spatial reference system of the mosaic are assumed to be the same (default).
+
+        Returns
+        -------
+        geospade.raster.Tile :
+            Tile intersecting/matching with the given world system coordinates.
+
+        """
+
         tile_oi = None
-        if point.Intersects(self.boundary):  # point is inside grid definition
+        if self._poi_intersects(poi):  # point is inside grid definition
             for tile in self.all_tiles:
-                if tile.intersects(point):  # point is inside tile
+                if tile.intersects(poi):  # point is inside tile
                     tile_oi = self._mask_tile(tile)
                     break
-        else:
-            wrn_msg = f"The given coordinate tuple ({x},{y}) is not within the mosaic boundary."
-            warnings.warn(wrn_msg)
 
         return tile_oi
+
+    def _poi_intersects(self, poi) -> bool:
+        """
+        Checks if the given point intersects with the mosaic. If not, a warning is raised.
+
+        Parameters
+        ----------
+        poi : ogr.wkbPoint
+            Point of interest.
+
+        Returns
+        -------
+        poi_intscts : bool
+            True if the point intersects with the mosaic, false if not.
+
+        """
+        poi_intscts = poi.Intersects(self.boundary)
+        if not poi_intscts:
+            wrn_msg = f"The given point ({poi.GetX()},{poi.GetY()}) is not within the mosaic boundary."
+            warnings.warn(wrn_msg)
+        return poi_intscts
 
     def name2tile(self, tile_name, active_only=True, apply_mask=True) -> "Tile":
         """
@@ -2586,35 +2627,6 @@ class RegularMosaicGeometry(MosaicGeometry):
         """
         return self._adjacency_matrix.shape
 
-    def xy2tile(self, x, y, sref=None) -> Tile:
-        """
-        Returns the tile intersecting with the given world system coordinates. If the coordinates are outside the
-        mosaic boundary, no tile is returned.
-
-        Parameters
-        ----------
-        x : number
-            World system coordinate in X direction.
-        y : number
-            World system coordinate in Y direction.
-        sref : SpatialRef, optional
-            Spatial reference system of the world system coordinates. If None, the spatial reference system of the
-            coordinates and the spatial reference system of the mosaic are assumed to be the same (default).
-
-        Returns
-        -------
-        geospade.raster.Tile :
-            Tile intersecting/matching with the given world system coordinates.
-
-        """
-        # create OGR point
-        point = ogr.Geometry(ogr.wkbPoint)
-        point.AddPoint(x, y)
-        osr_sref = self.sref.osr_sref if sref is None else sref.osr_sref
-        point.AssignSpatialReference(osr_sref)
-
-        return self.poi2tile(point, sref=sref)
-
     @_align_geom(align=True)
     def poi2tile(self, poi, sref=None) -> Tile:
         """
@@ -2637,7 +2649,7 @@ class RegularMosaicGeometry(MosaicGeometry):
         """
 
         tile_oi = None
-        if poi.Intersects(self.boundary):  # point is inside grid definition
+        if self._poi_intersects(poi):  # point is inside grid definition
             mosaic_row, mosaic_col = self._raster_geom.xy2rc(poi.GetX(), poi.GetY(), sref=sref)
             tile_oi = self.__tile_from_rc(mosaic_row, mosaic_col)
 

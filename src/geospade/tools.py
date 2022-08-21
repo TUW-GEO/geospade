@@ -327,9 +327,69 @@ def any_geom2ogr_geom(geom, sref=None) -> ogr.Geometry:
     return ogr_geom
 
 
+def _round_polygon_coords(polygon, decimals) -> ogr.wkbPolygon:
+    """
+    'Cleans' the coordinates of an OGR polygon, so that it has rounded coordinates.
+
+    Parameters
+    ----------
+    polygon : ogr.wkbPolygon
+        An OGR polygon.
+    decimals : int
+        Number of significant digits to round to.
+
+    Returns
+    -------
+    geometry_out : ogr.wkbPolygon
+        An OGR polygon with rounded coordinates.
+
+    """
+    ring = polygon.GetGeometryRef(0)
+
+    rounded_ring = ogr.Geometry(ogr.wkbLinearRing)
+
+    n_points = ring.GetPointCount()
+
+    for p in range(n_points):
+        x, y, z = ring.GetPoint(p)
+        rx, ry, rz = [np.round(x, decimals=decimals),
+                      np.round(y, decimals=decimals),
+                      np.round(z, decimals=decimals)]
+        rounded_ring.AddPoint(rx, ry, rz)
+
+    geometry_out = ogr.Geometry(ogr.wkbPolygon)
+    geometry_out.AddGeometry(rounded_ring)
+
+    return geometry_out
+
+
+def _round_point_coords(point, decimals) -> ogr.wkbPoint:
+    """
+    'Cleans' the coordinates of an OGR polygon, so that it has rounded coordinates.
+
+    Parameters
+    ----------
+    point : ogr.wkbPoint
+        An OGR point.
+    decimals : int
+        Number of significant digits to round to.
+
+    Returns
+    -------
+    geometry_out : ogr.wkbPoint
+        An OGR point with rounded coordinates.
+
+    """
+    rx, ry = np.round(point.GetX(), decimals=decimals), np.round(point.GetY(), decimals=decimals)
+    rpoint = ogr.Geometry(ogr.wkbPoint)
+    rpoint.AddPoint(rx, ry)
+
+    return rpoint
+
+
 def _round_geom_coords(geom, decimals) -> ogr.Geometry:
     """
-    'Cleans' the coordinates, so that it has rounded coordinates.
+    'Cleans' the coordinates of an OGR geometry, so that it has rounded coordinates.
 
     Parameters
     ----------
@@ -343,28 +403,18 @@ def _round_geom_coords(geom, decimals) -> ogr.Geometry:
     geometry_out : ogr.Geometry
         An OGR geometry with 'cleaned' and rounded coordinates.
 
+    Notes
+    -----
+    Only OGR polygons and points are supported.
+
     """
-    if not geom.ExportToWkt().startswith('POLYGON'):
-        err_msg = "Only OGR Polygons are supported at the moment."
+    if geom.ExportToWkt().startswith('POLYGON'):
+        return _round_polygon_coords(geom, decimals)
+    elif geom.ExportToWkt().startswith('POINT'):
+        return _round_point_coords(geom, decimals)
+    else:
+        err_msg = "Only OGR Polygons and Points are supported at the moment."
         raise NotImplementedError(err_msg)
-
-    ring = geom.GetGeometryRef(0)
-
-    rounded_ring = ogr.Geometry(ogr.wkbLinearRing)
-
-    n_points = ring.GetPointCount()
-
-    for p in range(n_points):
-        lon, lat, z = ring.GetPoint(p)
-        rlon, rlat, rz = [np.round(lon, decimals=decimals),
-                          np.round(lat, decimals=decimals),
-                          np.round(z, decimals=decimals)]
-        rounded_ring.AddPoint(rlon, rlat, rz)
-
-    geometry_out = ogr.Geometry(ogr.wkbPolygon)
-    geometry_out.AddGeometry(rounded_ring)
-
-    return geometry_out
 
 
 def rasterise_polygon(geom, x_pixel_size, y_pixel_size, extent=None) -> np.ndarray:

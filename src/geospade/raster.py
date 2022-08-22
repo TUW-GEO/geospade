@@ -2291,9 +2291,9 @@ class MosaicGeometry:
         """
         if tile.mask is None:
             if tile.mosaic_topology == 'INNER':
-                tile.mask = np.ones(tile.shape)
+                tile.mask = np.ones(tile.shape, dtype=np.uint8)
             elif tile.mosaic_topology == 'OUTER':
-                tile.mask = np.zeros(tile.shape)
+                tile.mask = np.zeros(tile.shape, dtype=np.uint8)
             elif tile.mosaic_topology == 'BOUNDARY':
                 intrsct_geom = self.boundary.Intersection(tile.boundary)
                 # first, using 'outer_boundary_extent' as a pixel buffer for generating the rasterised
@@ -2721,7 +2721,7 @@ class RegularMosaicGeometry(MosaicGeometry):
 
         """
 
-        intsctd_raster_geom = self._raster_geom.slice_by_geom(geom, True, False)
+        intsctd_raster_geom = self._raster_geom.slice_by_geom(geom, snap_to_grid=True, inplace=False)
         if intsctd_raster_geom is None:
             return None
         intsctd_mosaic_height, intsctd_mosaic_width = intsctd_raster_geom.shape

@@ -2,6 +2,13 @@
 Changelog
 =========
 
+Version 0.2.2
+=============
+
+- fixed wrong encoding of mask arrays
+- added geometry reprojection to mosaic methods
+- added new `poi2tile()` method
+
 Version 0.2.1
 =============
 

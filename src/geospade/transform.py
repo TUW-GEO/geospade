@@ -166,8 +166,6 @@ def transform_geom(geom, other_sref) -> ogr.Geometry:
     geometry_out = geom.Clone()
     # transform geometry to new spatial reference system.
     geometry_out.TransformTo(other_sref.osr_sref)
-    # round geometry coordinates
-    geometry_out = _round_geom_coords(geometry_out, DECIMALS)
     # assign new spatial reference system
     geometry_out.AssignSpatialReference(other_sref.osr_sref)
 

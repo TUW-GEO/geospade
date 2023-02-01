@@ -18,6 +18,13 @@ from geospade.tools import any_geom2ogr_geom
 from geospade.raster import RasterGeometry
 from geospade.raster import MosaicGeometry
 from geospade.raster import RegularMosaicGeometry
+from geospade import DECIMALS
+
+
+def assert_extent(this_extent, other_extent):
+    this_extent = np.around(np.array(this_extent), decimals=DECIMALS)
+    other_extent = np.around(np.array(other_extent), decimals=DECIMALS)
+    assert np.all(this_extent == other_extent)
 
 
 class RasterGeometryTest(unittest.TestCase):
@@ -58,14 +65,14 @@ class RasterGeometryTest(unittest.TestCase):
     def test_from_extent(self):
         """ Tests setting up a raster geometry from a given extent. """
 
-        self.assertTupleEqual(self.raster_geom.outer_boundary_extent, self.extent)
+        assert_extent(self.raster_geom.outer_boundary_extent, self.extent)
 
     def test_from_geom(self):
         """ Tests setting up a raster geometry from a given geometry. """
 
         raster_geom = RasterGeometry.from_geometry(self.ogr_geom, self.x_pixel_size, self.y_pixel_size)
 
-        self.assertTupleEqual(raster_geom.outer_boundary_corners, tuple(self.sh_geom.exterior.coords)[:-1])
+        assert_extent(raster_geom.outer_boundary_corners, tuple(self.sh_geom.exterior.coords)[:-1])
 
     def test_from_json(self):
         """ Tests the creation of a raster geometry from a JSON file containing a raster geometry definition. """
@@ -99,7 +106,7 @@ class RasterGeometryTest(unittest.TestCase):
         ur_x, ur_y = raster_geom_c.rc2xy(0, raster_geom_b.n_cols - 1, px_origin="ur")
         new_extent = (ll_x, ll_y, ur_x, ur_y)
 
-        self.assertTupleEqual(raster_geom.outer_boundary_extent, new_extent)
+        assert_extent(raster_geom.outer_boundary_extent, new_extent)
 
         # test if error is raised, when raster geometries with different resolutions are joined
         try:
@@ -156,7 +163,7 @@ class RasterGeometryTest(unittest.TestCase):
                     (self.extent[2], self.extent[3]),
                     (self.extent[2], self.extent[1]))
 
-        self.assertTupleEqual(self.raster_geom.outer_boundary_corners, vertices)
+        assert_extent(self.raster_geom.outer_boundary_corners, vertices)
 
     def test_x_coords(self):
         """ Tests coordinate retrieval along x dimension. """
@@ -241,7 +248,7 @@ class RasterGeometryTest(unittest.TestCase):
                                                          self.x_pixel_size, self.y_pixel_size)
         raster_geom_intsct = self.raster_geom.slice_by_geom(raster_geom_shifted, inplace=False)
 
-        assert raster_geom_intsct.outer_boundary_extent == extent_intsct
+        assert_extent(raster_geom_intsct.outer_boundary_extent, extent_intsct)
 
         # test intersection with no overlap
         extent_no_ovlp = (self.extent[2] + 1., self.extent[3] + 1.,
@@ -531,7 +538,7 @@ class MosaicGeometryTest(unittest.TestCase):
         geom = any_geom2ogr_geom(self._get_roi(), sref=self.mosaic_geom.sref)
         intscted_tiles = self.mosaic_geom.slice_by_geom(geom, inplace=False).tiles
         outer_boundary_extent = RasterGeometry.from_raster_geometries(intscted_tiles).outer_boundary_extent
-        self.assertTupleEqual(outer_boundary_extent, self._get_roi())
+        assert_extent(outer_boundary_extent, self._get_roi())
 
     def test_slice_by_geom(self):
         """ Tests sub-setting a mosaic geometry with another geometry. """
@@ -668,7 +675,7 @@ class RegularMosaicGeometryTest(unittest.TestCase):
         geom = any_geom2ogr_geom(self._get_roi(), sref=self.mosaic_geom.sref)
         intscted_tiles = self.mosaic_geom.slice_by_geom(geom, inplace=False).tiles
         outer_boundary_extent = RasterGeometry.from_raster_geometries(intscted_tiles).outer_boundary_extent
-        self.assertTupleEqual(outer_boundary_extent, self._get_roi())
+        assert_extent(outer_boundary_extent, self._get_roi())
 
     def test_slice_by_geom(self):
         """ Tests sub-setting a regular mosaic geometry with another geometry. """

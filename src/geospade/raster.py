@@ -23,6 +23,7 @@ from geospade.tools import is_rectangular
 from geospade.tools import bbox_to_polygon
 from geospade.tools import rasterise_polygon
 from geospade.tools import rel_extent
+from geospade.tools import _round_polygon_coords
 from geospade.transform import build_geotransform
 from geospade.transform import xy2ij
 from geospade.transform import ij2xy
@@ -689,7 +690,7 @@ class RasterGeometry:
             True if both geometries touch each other, false if not.
 
         """
-        return self.boundary.Touches(other)
+        return _round_polygon_coords(self.boundary, DECIMALS).Touches(_round_polygon_coords(other, DECIMALS))
 
     @_align_geom(align=True)
     def within(self, other, sref=None) -> bool:
@@ -771,7 +772,7 @@ class RasterGeometry:
              return
 
         intersection = self.boundary.Intersection(other)
-        bbox = np.around(intersection.GetEnvelope(), decimals=DECIMALS)
+        bbox = intersection.GetEnvelope()
         if snap_to_grid:
             new_ll_x, new_ll_y = self.snap_to_grid(bbox[0], bbox[2], px_origin="ll")
             new_ur_x, new_ur_y = self.snap_to_grid(bbox[1], bbox[3], px_origin="ur")
@@ -1286,8 +1287,9 @@ class RasterGeometry:
             True if both raster geometries are the same, otherwise false.
 
         """
-
-        return self.outer_boundary_corners == other.outer_boundary_corners and \
+        this_corners = np.around(np.array(self.outer_boundary_corners), decimals=DECIMALS)
+        other_corners = np.around(np.array(other.outer_boundary_corners), decimals=DECIMALS)
+        return np.all(this_corners == other_corners) and \
                self.n_rows == other.n_rows and \
                self.n_cols == other.n_cols
 

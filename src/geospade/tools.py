@@ -80,8 +80,8 @@ def polar_point(x_ori, y_ori, dist, angle, deg=True) -> Tuple[np.ndarray or floa
 
     """
     angle = np.radians(angle) if deg else angle
-    x_pp = np.around(x_ori + dist * np.cos(angle), decimals=DECIMALS)
-    y_pp = np.around(y_ori + dist * np.sin(angle), decimals=DECIMALS)
+    x_pp = x_ori + dist * np.cos(angle)
+    y_pp = y_ori + dist * np.sin(angle)
 
     return x_pp, y_pp
 

@@ -2,6 +2,11 @@
 Changelog
 =========
 
+Version 0.2.3
+=============
+
+- fixed rounding of world system coordinates
+
 Version 0.2.2
 =============
 

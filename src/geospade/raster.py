@@ -2527,7 +2527,7 @@ class RegularMosaicGeometry(MosaicGeometry):
         y_tile_size = ref_tile.y_size
         raster_geom_geotrans = (ul_x, x_tile_size, geotrans[2],
                                 ul_y, geotrans[4], -y_tile_size)
-        n_rows, n_cols = adjacency_matrix.shape
+        n_rows, n_cols = self._adjacency_matrix.shape
         self._raster_geom = RasterGeometry(n_rows, n_cols, self.sref, geotrans=raster_geom_geotrans)
 
     @classmethod

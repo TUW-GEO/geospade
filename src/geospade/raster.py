@@ -1592,7 +1592,7 @@ class MosaicGeometry:
     """
 
     _tile_class = Tile
-    __type = 'irregular'
+    _type = 'irregular'
 
     def __init__(self, tiles, boundary=None, adjacency_matrix=None, name="", description="", tile_class=Tile,
                  check_consistency=True, parent=None, **kwargs):
@@ -1763,11 +1763,11 @@ class MosaicGeometry:
 
         """
         mosaic_type = definition['type']
-        if mosaic_type != cls.__type:
+        if mosaic_type != cls._type:
             err_msg = "Mosaic type of definition '{}' does not match expected mosaic type '{}'".format(mosaic_type,
-                                                                                                       cls.__type)
+                                                                                                       cls._type)
             raise ValueError(err_msg)
-        mosaic_boundary = shapely.wkt.loads(definition['boundary'])
+        mosaic_boundary = ogr.CreateGeometryFromWkt(definition['boundary'])
         mosaic_name = definition['name']
         description = definition['description']
         adjacency_matrix = None if definition['adjacency_matrix'] is None else np.array(definition['adjacency_matrix'])
@@ -1782,6 +1782,7 @@ class MosaicGeometry:
         for key in definition['tiles'].keys():
             tiles.append(tile_class.from_definition(definition['tiles'][key]))
 
+        mosaic_boundary.AssignSpatialReference(tiles[0].sref.osr_sref)
         return cls.from_tile_list(tiles, boundary=mosaic_boundary, adjacency_matrix=adjacency_matrix,
                                   name=mosaic_name, description=description, check_consistency=check_consistency)
 
@@ -2247,11 +2248,12 @@ class MosaicGeometry:
 
     def to_definition(self) -> dict:
         """ Creates a human-readable mosaic definition. """
+
         definition = OrderedDict()
         definition['name'] = self.name
         definition['description'] = self.description
         definition['tiles'] = OrderedDict()
-        definition['type'] = self.__type
+        definition['type'] = self._type
         definition['adjacency_matrix'] = self._adjacency_matrix.tolist()
         definition['boundary'] = self.boundary.ExportToWkt()
         definition['tile_class'] = type(self._tiles['tile'].iloc[0]).__name__
@@ -2477,7 +2479,7 @@ class RegularMosaicGeometry(MosaicGeometry):
     overlap or vary in size.
 
     """
-    __type = 'regular'
+    _type = 'regular'
 
     def __init__(self, tiles, boundary=None, adjacency_matrix=None, name="", description="", check_consistency=True,
                  **kwargs):

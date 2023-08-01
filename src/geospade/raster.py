@@ -2304,7 +2304,8 @@ class MosaicGeometry:
                 # pixel skeleton
                 # second, reduce this pixel buffer again to the coordinate extent by skipping the last
                 # row and column
-                tile.mask = rasterise_polygon(intrsct_geom, tile.x_pixel_size, tile.y_pixel_size,
+                tile.mask = rasterise_polygon(shapely.wkt.loads(intrsct_geom.ExportToWkt()),
+                                              tile.x_pixel_size, tile.y_pixel_size,
                                               tile.outer_boundary_extent)[:-1, :-1]
 
         return tile

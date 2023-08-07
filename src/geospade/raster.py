@@ -2251,12 +2251,12 @@ class MosaicGeometry:
 
         definition = OrderedDict()
         definition['name'] = self.name
+        definition['type'] = self._type
+        definition['tile_class'] = type(self._tiles['tile'].iloc[0]).__name__
         definition['description'] = self.description
         definition['tiles'] = OrderedDict()
-        definition['type'] = self._type
         definition['adjacency_matrix'] = self._adjacency_matrix.tolist()
         definition['boundary'] = self.boundary.ExportToWkt()
-        definition['tile_class'] = type(self._tiles['tile'].iloc[0]).__name__
 
         for i, tile in enumerate(self.all_tiles):
             tile.active = self._tiles.iloc[i]['active']

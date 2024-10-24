@@ -2,6 +2,11 @@
 Changelog
 =========
 
+Version 0.2.4
+=============
+
+- fixed python 3.12 deprecations (pkg\_resources and typing in tests)
+
 Version 0.2.3
 =============
 

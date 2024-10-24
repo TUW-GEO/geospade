@@ -37,10 +37,10 @@ class RasterGeometryTest(unittest.TestCase):
         self.sref = SpatialRef(4326)
 
         # define region of interest/extent
-        ll_x = random.randrange(-50., 50., 10.)
-        ll_y = random.randrange(-50., 50., 10.)
-        ur_x = ll_x + random.randrange(10., 50., 10.)
-        ur_y = ll_y + random.randrange(10., 50., 10.)
+        ll_x = random.randrange(-50, 50, 10)
+        ll_y = random.randrange(-50, 50, 10)
+        ur_x = ll_x + random.randrange(10, 50, 10)
+        ur_y = ll_y + random.randrange(10, 50, 10)
         self.sh_geom = Polygon((
             (ll_x, ll_y),
             (ll_x, ur_y),
@@ -465,8 +465,8 @@ class MosaicGeometryTest(unittest.TestCase):
         x_pixel_size = 0.01
         y_pixel_size = 0.01
         # define origin and number of tiles (randomly)
-        mosaic_ul_x = random.randrange(-50., 50., 10.)
-        mosaic_ul_y = random.randrange(-50., 50., 10.)
+        mosaic_ul_x = random.randrange(-50, 50, 10)
+        mosaic_ul_y = random.randrange(-50, 50, 10)
         mosaic_rows = 1
         y_tile_size = 1.
         # define cols
@@ -633,8 +633,8 @@ class RegularMosaicGeometryTest(unittest.TestCase):
         x_pixel_size = 0.01
         y_pixel_size = 0.01
         # define origin and number of tiles (randomly)
-        mosaic_ul_x = random.randrange(-50., 50., 10.)
-        mosaic_ul_y = random.randrange(-50., 50., 10.)
+        mosaic_ul_x = random.randrange(-50, 50, 10)
+        mosaic_ul_y = random.randrange(-50, 50, 10)
         mosaic_rows = 3
         mosaic_cols = 3
         x_tile_size = 1.

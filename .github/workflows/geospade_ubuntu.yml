@@ -56,8 +56,8 @@ jobs:
       - name: Install package and test
         shell: bash -l {0}
         run: |
-          pip install .
-          python setup.py test
+          pip install .[testing]
+          pytest
       - name: Upload Coverage
         shell: bash -l {0}
         run: |
